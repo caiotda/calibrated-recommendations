@@ -1,3 +1,4 @@
 RATING_COL = "rating"
-USER_COL = "userId"
-ITEM_COL = "movieId"
+USER_COL = "user"
+ITEM_COL = "item"
+GENRE_COL = "genres"
