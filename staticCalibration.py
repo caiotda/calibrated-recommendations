@@ -4,6 +4,9 @@ from functools import reduce
 from typing import Counter
 from metrics import standardize_prob_distributions, get_kl_divergence
 
+from tqdm import tqdm
+
+
 
 from constants import ITEM_COL, USER_COL, GENRE_COL
 
@@ -133,6 +136,53 @@ class Calibration:
     def _update_candidate_list_genre_distribution(self, current_list_dist, new_item_dist):
         a, b =  standardize_prob_distributions(current_list_dist, new_item_dist)
         return  merge_dicts(a,b)
+    
+    def calculate_gender_distribution(self, item_list):
+        genre_map = self.item2genreMap
+
+        genre_counts = Counter([genre for item in item_list for genre in genre_map[item]])
+        return {genre: count / sum(genre_counts.values()) for genre, count in genre_counts.items()}
+    
+    def CE_at_k(self, rec_list, user_history, k=20):
+        rec_at_k = rec_list[:k]
+        rec_dist = self.calculate_gender_distribution(rec_at_k)
+        user_history_rec = self.calculate_gender_distribution(user_history)
+
+        return get_kl_divergence(rec_dist, user_history_rec) / self.n_genres
+    
+    # def ace(self, rec_list, user_history):
+
+    
+    # def mace(self):
+
+    
+    def calibrate_for_users(self, subset=None):
+        calibrated_rec = []
+        calibrated_dist = []
+
+        # Select only the rows for the given subset of users, if provided
+        df = self.calibration_df
+        if subset is not None:
+            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
+
+        for i in tqdm(df.index, total=len(df)):
+            rec, dist = self.calibrate(df.iloc[i])
+            kl = get_kl_divergence(rec, dist)
+
+            calibrated_rec.append(rec)
+            calibrated_dist.append(dist)
+
+        df["calibrated_rec"] = calibrated_rec
+        df["calibrated_dist"] = calibrated_dist
+
+        if subset is not None:
+            self.calibration_df.loc[df.index, "calibrated_rec"] = df["calibrated_rec"]
+            self.calibration_df.loc[df.index, "calibrated_dist"] = df["calibrated_dist"]
+        else:
+            self.calibration_df = df
+
+    #def calibration_error(self):
+
 
 
     def calibrate(self, row, k=20, _lambda = 0.99):
