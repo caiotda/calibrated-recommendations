@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 
 from constants import ITEM_COL, USER_COL, GENRE_COL
+from weight_functions import get_linear_time_weight_rating, get_constant_weight, get_rating_weight
 
 
 import pandas as pd
@@ -26,10 +27,10 @@ def merge_dicts(dict1, dict2):
     return {key: dict1.get(key, 0) + dict2.get(key, 0) for key in set(dict1) | set(dict2)}
 
 
-def create_prob_distribution_df(ratings, weight_function=lambda _: 1):
+def create_prob_distribution_df(ratings, weight_mode='w_c'):
     """
         This function recieves a ratings data frame (the only requirements are that it should contain
-        userID, itemID and genres columns), a weight function, which maps the importance of each
+        userID, itemID, timestamp and genres columns), a weight function, which maps the importance of each
         item to the user (could be an operation on how recent was the item rated, the rating itself
         etc) and returns a dataframe mapping an userID to its genre preference distribution
     """
@@ -37,7 +38,7 @@ def create_prob_distribution_df(ratings, weight_function=lambda _: 1):
     # Here we simply count the number of genres found per item and the weight w_u_i
     user_genre_counter = df.groupby([USER_COL, ITEM_COL]).agg(
         genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
-        w_u_i=(GENRE_COL, weight_function)  
+        w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, df, weight_mode))  
     )
     # We normalize the item count to obtain p(g|i)
     user_genre_counter["p(g|i)"] = user_genre_counter["genres_count"].apply(
@@ -62,21 +63,34 @@ def create_prob_distribution_df(ratings, weight_function=lambda _: 1):
 
     return user_to_prob_distribution[[USER_COL, "p(g|u)"]]
 
+def get_weight(genres_list, df, col_name):
+    return df.loc[genres_list.index[0], col_name]
 
 
+CALIBRATION_MODE_TO_COL_NAME = {
+    "constant": "w_c",
+    "rating": "w_rui",
+    "linear_time": "w_twb"
+}
 
 
-CALIBRATION_MODE_TO_FUNCTION = {
-    'constant': create_prob_distribution_df
+CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION = {
+    "constant": get_constant_weight,
+    "rating": get_rating_weight,
+    "linear_time": get_linear_time_weight_rating
 }
 
 
 class Calibration:
     def __init__(self, ratings_df, model, weight='constant'):
-
+        assert weight in CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys(), \
+            f"weight must be one of {list(CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys())}, got '{weight}'"
+        
+        genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[weight]
         self.model = model
-        self.ratings_df = ratings_df
-        self.generate_genre_distribution = CALIBRATION_MODE_TO_FUNCTION[weight]
+        self.ratings_df = ratings_df.transform(genre_importance_function)
+        self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
+        self.weight_function = CALIBRATION_MODE_TO_COL_NAME[weight]
         self.item2genre_df = self._setup_data_preprocessing()
         self.candidates  = tensor(ratings_df.item.unique(), device=dev)
 
@@ -85,16 +99,15 @@ class Calibration:
 
         self.calibration_df = self._setup_calibration_df()
        
-
         self.item2genre_count_dict = self.item2genre_df.set_index(ITEM_COL)["genre_count"].to_dict()
         self.item_to_genre_dict_map =  dict(zip(self.item2genre_df[ITEM_COL], self.item2genre_df["genre_distribution"]))
         self.all_genres = set(self.item2genre_df.genres.explode().unique())
-        self. default_genre_count = {genre: 0 for genre in self.all_genres}
+        self.default_genre_count = {genre: 0 for genre in self.all_genres}
         self.n_genres = len(self.all_genres)
 
 
     def _setup_calibration_df(self):
-        history_genre_distribution =  self.generate_genre_distribution(self.ratings_df)
+        history_genre_distribution =  create_prob_distribution_df(self.ratings_df, self.weight_function)
         history_genre_distribution[["top_k_rec_id", "top_k_rec_score"]] = history_genre_distribution.apply(
         lambda row: pd.Series(self.get_top_k_recommendations_for_user(row)), axis=1
         )
@@ -103,8 +116,9 @@ class Calibration:
         user_history_genre_distribution_df_exploded[GENRE_COL] = user_history_genre_distribution_df_exploded[ITEM_COL].astype(int).map(self.item2genreMap)
 
         user_recommendations_genre_distribution = create_prob_distribution_df(
-            user_history_genre_distribution_df_exploded[[USER_COL, ITEM_COL, GENRE_COL]]
-            ).rename(columns=({"p(g|u)": "q(g|u)"}))
+            ratings=user_history_genre_distribution_df_exploded[[USER_COL, ITEM_COL, GENRE_COL, "top_k_rec_score"]],
+            weight_mode="top_k_rec_score").rename(columns=({"p(g|u)": "q(g|u)"})
+        )
 
 
         calibration_df = history_genre_distribution.merge(user_recommendations_genre_distribution,"inner", USER_COL)
@@ -150,10 +164,30 @@ class Calibration:
 
         return get_kl_divergence(rec_dist, user_history_rec) / self.n_genres
     
-    # def ace(self, rec_list, user_history):
+    def ace(self, rec_list, user_history):
+        N = len(rec_list)
+        ACE = 0
+        for k in range(1, N):
+            ACE += self.CE_at_k(rec_list, user_history, k)
+        return ACE/N
 
     
-    # def mace(self):
+    def mace(self, subset=None):
+
+        # Select only the rows for the given subset of users, if provided
+        df = self.calibration_df
+        if subset is not None:
+            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
+
+        num_users = len(df)
+        ACE_U = 0
+        for u in tqdm(df.index, total=num_users):
+            user = df.iloc[u]
+            rec = user["top_k_rec_id"]
+            history = self.user2history[u]
+            ACE_U += self.ace(rec, history)
+
+        return ACE_U / num_users
 
     
     def calibrate_for_users(self, subset=None):
@@ -167,7 +201,6 @@ class Calibration:
 
         for i in tqdm(df.index, total=len(df)):
             rec, dist = self.calibrate(df.iloc[i])
-            kl = get_kl_divergence(rec, dist)
 
             calibrated_rec.append(rec)
             calibrated_dist.append(dist)
