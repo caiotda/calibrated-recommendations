@@ -94,7 +94,7 @@ CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
 
 
 class Calibration:
-    def __init__(self, ratings_df, model, weight='constant'):
+    def __init__(self, ratings_df, recommendation_df, weight='constant'):
         assert weight in CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys(), \
             f"weight must be one of {list(CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys())}, got '{weight}'"
         self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
@@ -103,13 +103,12 @@ class Calibration:
         ratings_df["constant"] = 1
         self.ratings_df = ratings_df.transform(genre_importance_function)
         self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
-        self.weight_function = CALIBRATION_MODE_TO_COL_NAME[weight]
         self.item2genre_df = self._setup_data_preprocessing()
         self.candidates  = tensor(ratings_df.item.unique(), device=dev)
 
         # Transform item2genre_df to a dictionary mapping item to genres
         self.item2genreMap = dict(zip(self.item2genre_df[ITEM_COL], self.item2genre_df["genres"]))
-
+        self.rec_df = self.preprocess_recommendation_for_calibration(recommendation_df)
         self.calibration_df = self._setup_calibration_df()
        
         self.item2genre_count_dict = self.item2genre_df.set_index(ITEM_COL)["genre_count"].to_dict()
@@ -119,25 +118,32 @@ class Calibration:
         self.n_genres = len(self.all_genres)
 
 
+    def preprocess_recommendation_for_calibration(self, rec_df):
+        df = rec_df.copy()
+        df["rank"] = df.groupby(USER_COL).cumcount() + 1
+        df[GENRE_COL] = df["top_k_rec_id"].astype(int).map(self.item2genreMap)
+        weight_function = CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION[self.weight]
+        df[f"rec_{self.weight_col_name}"] = df.apply(weight_function, axis=1)
+        return df
+
+
     def _setup_calibration_df(self):
-        history_genre_distribution =  create_prob_distribution_df(self.ratings_df, self.weight_function)
-        history_genre_distribution[["top_k_rec_id", "top_k_rec_score"]] = history_genre_distribution.apply(
-        lambda row: pd.Series(self.get_top_k_recommendations_for_user(row)), axis=1
-        )
-
-        user_history_genre_distribution_df_exploded = history_genre_distribution.explode(["top_k_rec_id", "top_k_rec_score"]).rename(columns={"top_k_rec_id": ITEM_COL})
-        user_history_genre_distribution_df_exploded[GENRE_COL] = user_history_genre_distribution_df_exploded[ITEM_COL].astype(int).map(self.item2genreMap)
-
+        history_genre_distribution =  create_prob_distribution_df(self.ratings_df, self.weight_col_name)
         user_recommendations_genre_distribution = create_prob_distribution_df(
-            ratings=user_history_genre_distribution_df_exploded[[USER_COL, ITEM_COL, GENRE_COL, "top_k_rec_score"]],
-            weight_mode="top_k_rec_score").rename(columns=({"p(g|u)": "q(g|u)"})
+            ratings=self.rec_df.rename(columns={"top_k_rec_id": ITEM_COL}),
+            weight_mode=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
         )
 
+        grouped = self.rec_df.groupby(USER_COL).agg({"top_k_rec_id": list, "top_k_rec_score": list})
+        grouped["rec_id_2_score_map"] = grouped.apply(
+                    lambda row: dict(zip(row["top_k_rec_id"], row["top_k_rec_score"])), axis=1
+                )
 
-        calibration_df = history_genre_distribution.merge(user_recommendations_genre_distribution,"inner", USER_COL)
 
-        calibration_df["rec_id_2_score_map"] = calibration_df.apply(
-            lambda row: dict(zip(row["top_k_rec_id"], row["top_k_rec_score"])), axis=1
+        calibration_df = (
+            history_genre_distribution
+            .merge(user_recommendations_genre_distribution,"inner", USER_COL)
+            .merge(grouped,"inner", USER_COL)
         )
 
         return calibration_df
@@ -152,13 +158,6 @@ class Calibration:
         item2genre['genre_count'] = item2genre['genres'].apply(lambda genres: dict(Counter(genres)))
 
         return item2genre
-    
-    def get_top_k_recommendations_for_user(self, row):
-        return self.model.predict(
-            user=tensor(data=row["user"], device=dev),
-            candidates=self.candidates,
-            k=100
-        )
     
     def _update_candidate_list_genre_distribution(self, current_list_dist, new_item_dist):
         a, b =  standardize_prob_distributions(current_list_dist, new_item_dist)
