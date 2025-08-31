@@ -9,7 +9,13 @@ from tqdm import tqdm
 
 
 from constants import ITEM_COL, USER_COL, GENRE_COL
-from weight_functions import get_linear_time_weight_rating, get_constant_weight, get_rating_weight
+from weight_functions import (
+    get_linear_time_weight_rating,
+    get_constant_weight,
+    get_rating_weight,
+    recommendation_twb_weighting,
+    recommendation_score_weigthing,
+)
 
 
 import pandas as pd
@@ -80,14 +86,21 @@ CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION = {
     "linear_time": get_linear_time_weight_rating
 }
 
+CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
+    "constant": recommendation_score_weigthing,
+    "rating": recommendation_score_weigthing,
+    "linear_time": recommendation_twb_weighting
+}
+
 
 class Calibration:
     def __init__(self, ratings_df, model, weight='constant'):
         assert weight in CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys(), \
             f"weight must be one of {list(CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys())}, got '{weight}'"
-        
+        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
+        self.weight = weight
         genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[weight]
-        self.model = model
+        ratings_df["constant"] = 1
         self.ratings_df = ratings_df.transform(genre_importance_function)
         self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
         self.weight_function = CALIBRATION_MODE_TO_COL_NAME[weight]
@@ -172,18 +185,23 @@ class Calibration:
         return ACE/N
 
     
-    def mace(self, subset=None):
+    def mace(self, is_calibrated=True, subset=None):
 
         # Select only the rows for the given subset of users, if provided
         df = self.calibration_df
         if subset is not None:
             df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
 
+        if(is_calibrated):
+            col = "calibrated_rec"
+        else:
+            col = "top_k_rec_id"
+
         num_users = len(df)
         ACE_U = 0
         for u in tqdm(df.index, total=num_users):
             user = df.iloc[u]
-            rec = user["top_k_rec_id"]
+            rec = user[col]
             history = self.user2history[u]
             ACE_U += self.ace(rec, history)
 
