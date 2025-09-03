@@ -1,14 +1,14 @@
 import math
-
 from functools import reduce
-from typing import Counter
-from metrics import standardize_prob_distributions, get_kl_divergence
+from collections import Counter
+from typing import Any
 
+import pandas as pd
 from tqdm import tqdm
-
-
+from torch import tensor, device, cuda
 
 from constants import ITEM_COL, USER_COL, GENRE_COL
+from metrics import standardize_prob_distributions, get_kl_divergence
 from weight_functions import (
     get_linear_time_weight_rating,
     get_constant_weight,
@@ -16,61 +16,15 @@ from weight_functions import (
     recommendation_twb_weighting,
     recommendation_score_weigthing,
 )
-
-
-import pandas as pd
-from torch import tensor, device, cuda
-
+from calibrationUtils import (
+    normalize_counter,
+    merge_dicts,
+    get_gleb_distribution,
+    create_prob_distribution_df,
+    get_weight,
+)
 
 dev = device('cuda' if cuda.is_available() else 'cpu')
-
-def normalize_counter(counter):
-    total = sum(counter.values())
-    return {k: v / total for k, v in counter.items()} if total > 0 else {}
-
-
-def merge_dicts(dict1, dict2):
-    return {key: dict1.get(key, 0) + dict2.get(key, 0) for key in set(dict1) | set(dict2)}
-
-
-def create_prob_distribution_df(ratings, weight_mode='w_c'):
-    """
-        This function recieves a ratings data frame (the only requirements are that it should contain
-        userID, itemID, timestamp and genres columns), a weight function, which maps the importance of each
-        item to the user (could be an operation on how recent was the item rated, the rating itself
-        etc) and returns a dataframe mapping an userID to its genre preference distribution
-    """
-    df = ratings.copy()
-    # Here we simply count the number of genres found per item and the weight w_u_i
-    user_genre_counter = df.groupby([USER_COL, ITEM_COL]).agg(
-        genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
-        w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, df, weight_mode))  
-    )
-    # We normalize the item count to obtain p(g|i)
-    user_genre_counter["p(g|i)"] = user_genre_counter["genres_count"].apply(
-        lambda genre_counts: {genre: count / sum(genre_counts.values()) for genre, count in genre_counts.items()}
-    )
-
-    # Here, we obtain w_u_i * p(g|i), basically obtaining the importance of a genre per user
-    user_genre_counter["p(g|u)_tmp"] = user_genre_counter.apply(
-        lambda row: {k: row["w_u_i"] * v for k, v in row["p(g|i)"].items()}, axis=1
-    )
-
-    # This step builds \sum_{i \in H} w_u_i * p(g|i), by combining the genres
-    # found in the users history.
-    user_to_prob_distribution = user_genre_counter.groupby(level=USER_COL)['p(g|u)_tmp'].agg(lambda dicts: reduce(merge_dicts, dicts)).reset_index()
-
-
-    normalization_per_user = user_genre_counter.groupby(USER_COL)['w_u_i'].sum()
-    user_to_prob_distribution["w_u_i_sum"] = normalization_per_user
-
-    # Finally, we normalize p(g|u)_tmp by \sum_{i \in H} w_u_i, obtaining Stecks calibration formulation
-    user_to_prob_distribution["p(g|u)"] = user_to_prob_distribution.apply(lambda row: {k: v/row["w_u_i_sum"] for k, v in row["p(g|u)_tmp"].items()}, axis=1)
-
-    return user_to_prob_distribution[[USER_COL, "p(g|u)"]]
-
-def get_weight(genres_list, df, col_name):
-    return df.loc[genres_list.index[0], col_name]
 
 
 CALIBRATION_MODE_TO_COL_NAME = {
@@ -93,10 +47,16 @@ CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
 }
 
 
+DISTRIBUTION_MODE_TO_FUCNTION = {
+    'steck': create_prob_distribution_df,
+    'gleb': get_gleb_distribution
+}
+
+
 class Calibration:
-    def __init__(self, ratings_df, recommendation_df, weight='constant'):
-        assert weight in CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys(), \
-            f"weight must be one of {list(CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION.keys())}, got '{weight}'"
+    def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck'):
+        self._validate_modes(weight, distribution_mode)
+
         self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
         self.weight = weight
         genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[weight]
@@ -116,6 +76,12 @@ class Calibration:
         self.all_genres = set(self.item2genre_df.genres.explode().unique())
         self.default_genre_count = {genre: 0 for genre in self.all_genres}
         self.n_genres = len(self.all_genres)
+        
+    def _validate_modes(self, weight, distribution_mode):
+        if weight not in CALIBRATION_MODE_TO_COL_NAME:
+            raise ValueError(f"Invalid weight mode: {weight}. Must be one of {list(CALIBRATION_MODE_TO_COL_NAME.keys())}")
+        if distribution_mode not in DISTRIBUTION_MODE_TO_FUCNTION:
+            raise ValueError(f"Invalid distribution mode: {distribution_mode}. Must be one of {list(DISTRIBUTION_MODE_TO_FUCNTION.keys())}")
 
 
     def preprocess_recommendation_for_calibration(self, rec_df):
