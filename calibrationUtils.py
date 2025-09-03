@@ -45,36 +45,40 @@ def get_gleb_proportion(local_dist, global_dist):
 
 
 
-def get_gleb_distribution(df, item2genre_count, weight_col='rating'):
-    gleb_df = df[["user", "item", weight_col]]
-    gleb_df.loc[:, "genre_count"] = gleb_df["item"].apply(lambda item: item2genre_count[item])
+def get_gleb_distribution(df, weight_col='rating'):
+    
+    gleb_df = df[[USER_COL, ITEM_COL, GENRE_COL, weight_col]]
+    user_genre_counter = gleb_df.groupby([USER_COL, ITEM_COL]).agg(
+        genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
+        w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, gleb_df, weight_col))  
+    ).reset_index()
 
-
-    gleb_df_grouped = gleb_df.groupby("user").agg({
-        "genre_count": lambda dicts: reduce(merge_dicts, dicts)
+    user_history = user_genre_counter.groupby(USER_COL).agg({
+        "genres_count": lambda dicts: reduce(merge_dicts, dicts)
     }).reset_index()
-    gleb_df_grouped.loc[:, "prop_h(u)"] = gleb_df_grouped["genre_count"].apply(normalize_counter)
+    user_history.loc[:, "prop_h(u)"] = user_history["genres_count"].apply(normalize_counter)
 
-    gleb_df = gleb_df.merge(gleb_df_grouped[["user", "prop_h(u)"]], on="user")
 
-    gleb_df.loc[:, "prop(g|i)"] = gleb_df["genre_count"].apply(normalize_counter)
+
+    gleb_df = user_genre_counter.merge(user_history[[USER_COL, "prop_h(u)"]], on=USER_COL)
+
+    gleb_df.loc[:, "prop(g|i)"] = gleb_df["genres_count"].apply(normalize_counter)
 
     gleb_df["e_c_u_i"] = gleb_df.apply(lambda row: get_gleb_proportion(row["prop(g|i)"], row["prop_h(u)"]), axis=1)
     gleb_df["gleb_dist_tmp"] = [
-        {k: row[weight_col] * v for k, v in row["e_c_u_i"].items()}
+        {k: row['w_u_i'] * v for k, v in row["e_c_u_i"].items()}
         for _, row in gleb_df.iterrows()
     ]
 
-    gleb_df_per_user = gleb_df.groupby("user").agg({
+    gleb_df_per_user = gleb_df.groupby(USER_COL).agg({
         "gleb_dist_tmp": lambda dicts: reduce(merge_dicts, dicts),
-        weight_col: "sum"
+        'w_u_i': "sum"
     }).rename(columns={weight_col: "sum_weight"}).reset_index()
 
-    
+
     gleb_df_per_user["e_c_u"] = gleb_df_per_user["gleb_dist_tmp"].apply(normalize_counter)
 
-
-    return gleb_df_per_user[["user", "e_c_u"]]
+    return gleb_df_per_user[[USER_COL, "e_c_u"]]
 
 
 
