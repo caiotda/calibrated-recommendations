@@ -55,11 +55,15 @@ DISTRIBUTION_MODE_TO_FUCNTION = {
 
 class Calibration:
     def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck'):
+            
         self._validate_modes(weight, distribution_mode)
 
-        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
-        self.weight = weight
         genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[weight]
+
+
+        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
+        self.distribution_function = DISTRIBUTION_MODE_TO_FUCNTION[distribution_mode]
+        self.weight = weight
         ratings_df["constant"] = 1
         self.ratings_df = ratings_df.transform(genre_importance_function)
         self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
@@ -94,8 +98,8 @@ class Calibration:
 
 
     def _setup_calibration_df(self):
-        history_genre_distribution =  create_prob_distribution_df(self.ratings_df, self.weight_col_name)
-        user_recommendations_genre_distribution = create_prob_distribution_df(
+        history_genre_distribution =  self.distribution_function(self.ratings_df, self.weight_col_name)
+        user_recommendations_genre_distribution = self.distribution_function(
             ratings=self.rec_df.rename(columns={"top_k_rec_id": ITEM_COL}),
             weight_mode=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
         )
