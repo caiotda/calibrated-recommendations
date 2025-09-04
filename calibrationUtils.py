@@ -2,6 +2,7 @@ from constants import ITEM_COL, USER_COL, GENRE_COL
 from functools import reduce
 from typing import Counter
 import numpy as np
+import pickle
 
 
 
@@ -45,9 +46,9 @@ def get_gleb_proportion(local_dist, global_dist):
 
 
 
-def get_gleb_distribution(df, weight_col='rating'):
+def get_gleb_distribution(ratings, weight_col='rating'):
     
-    gleb_df = df[[USER_COL, ITEM_COL, GENRE_COL, weight_col]]
+    gleb_df = ratings[[USER_COL, ITEM_COL, GENRE_COL, weight_col]]
     user_genre_counter = gleb_df.groupby([USER_COL, ITEM_COL]).agg(
         genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
         w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, gleb_df, weight_col))  
