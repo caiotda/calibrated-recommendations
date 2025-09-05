@@ -49,9 +49,8 @@ def get_gleb_proportion(local_dist, global_dist):
 def get_gleb_distribution(ratings, weight_col='rating'):
     
     gleb_df = ratings[[USER_COL, ITEM_COL, GENRE_COL, weight_col]]
-    user_genre_counter = gleb_df.groupby([USER_COL, ITEM_COL]).agg(
+    user_genre_counter = gleb_df.groupby([USER_COL, ITEM_COL, weight_col]).agg(
         genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
-        w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, gleb_df, weight_col))  
     ).reset_index()
 
     user_history = user_genre_counter.groupby(USER_COL).agg({
@@ -67,23 +66,24 @@ def get_gleb_distribution(ratings, weight_col='rating'):
 
     gleb_df["e_c_u_i"] = gleb_df.apply(lambda row: get_gleb_proportion(row["prop(g|i)"], row["prop_h(u)"]), axis=1)
     gleb_df["gleb_dist_tmp"] = [
-        {k: row['w_u_i'] * v for k, v in row["e_c_u_i"].items()}
+        {k: row[weight_col] * v for k, v in row["e_c_u_i"].items()}
         for _, row in gleb_df.iterrows()
     ]
 
     gleb_df_per_user = gleb_df.groupby(USER_COL).agg({
         "gleb_dist_tmp": lambda dicts: reduce(merge_dicts, dicts),
-        'w_u_i': "sum"
-    }).rename(columns={weight_col: "sum_weight"}).reset_index()
-
+    }).reset_index()
 
     gleb_df_per_user["e_c_u"] = gleb_df_per_user["gleb_dist_tmp"].apply(normalize_counter)
 
-    return gleb_df_per_user[[USER_COL, "e_c_u"]]
+    gleb_df_per_user = gleb_df_per_user.rename(columns={"e_c_u": "p(g|u)"})
+
+    return gleb_df_per_user[[USER_COL, "p(g|u)"]]
 
 
 
-def create_prob_distribution_df(ratings, weight_mode='w_c'):
+
+def create_prob_distribution_df(ratings, weight_col='w_c'):
     """
         This function recieves a ratings data frame (the only requirements are that it should contain
         userID, itemID, timestamp and genres columns), a weight function, which maps the importance of each
@@ -92,10 +92,9 @@ def create_prob_distribution_df(ratings, weight_mode='w_c'):
     """
     df = ratings.copy()
     # Here we simply count the number of genres found per item and the weight w_u_i
-    user_genre_counter = df.groupby([USER_COL, ITEM_COL]).agg(
+    user_genre_counter = df.groupby([USER_COL, ITEM_COL, weight_col]).agg(
         genres_count=(GENRE_COL, lambda genres_list: Counter((genre for genres in genres_list for genre in genres))),
-        w_u_i=(GENRE_COL, lambda  genres_list: get_weight(genres_list, df, weight_mode))  
-    )
+    ).reset_index().rename(columns={weight_col: 'w_u_i'})
     # We normalize the item count to obtain p(g|i)
     user_genre_counter["p(g|i)"] = user_genre_counter["genres_count"].apply(
         lambda genre_counts: {genre: count / sum(genre_counts.values()) for genre, count in genre_counts.items()}
@@ -108,7 +107,7 @@ def create_prob_distribution_df(ratings, weight_mode='w_c'):
 
     # This step builds \sum_{i \in H} w_u_i * p(g|i), by combining the genres
     # found in the users history.
-    user_to_prob_distribution = user_genre_counter.groupby(level=USER_COL)['p(g|u)_tmp'].agg(lambda dicts: reduce(merge_dicts, dicts)).reset_index()
+    user_to_prob_distribution = user_genre_counter.groupby(USER_COL)['p(g|u)_tmp'].agg(lambda dicts: reduce(merge_dicts, dicts)).reset_index()
 
 
     normalization_per_user = user_genre_counter.groupby(USER_COL)['w_u_i'].sum()

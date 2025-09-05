@@ -101,7 +101,7 @@ class Calibration:
         history_genre_distribution =  self.distribution_function(self.ratings_df, self.weight_col_name)
         user_recommendations_genre_distribution = self.distribution_function(
             ratings=self.rec_df.rename(columns={"top_k_rec_id": ITEM_COL}),
-            weight_mode=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
+            weight_col=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
         )
 
         grouped = self.rec_df.groupby(USER_COL).agg({"top_k_rec_id": list, "top_k_rec_score": list})
