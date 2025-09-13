@@ -24,6 +24,8 @@ from calibrationUtils import (
     get_weight,
 )
 
+from metrics import mace
+
 dev = device('cuda' if cuda.is_available() else 'cpu')
 
 
@@ -133,49 +135,25 @@ class Calibration:
         a, b =  standardize_prob_distributions(current_list_dist, new_item_dist)
         return  merge_dicts(a,b)
     
-    def calculate_gender_distribution(self, item_list):
-        genre_map = self.item2genreMap
 
-        genre_counts = Counter([genre for item in item_list for genre in genre_map[item]])
-        return {genre: count / sum(genre_counts.values()) for genre, count in genre_counts.items()}
-    
-    def CE_at_k(self, rec_list, user_history, k=20):
-        rec_at_k = rec_list[:k]
-        rec_dist = self.calculate_gender_distribution(rec_at_k)
-        user_history_rec = self.calculate_gender_distribution(user_history)
-
-        return get_kl_divergence(rec_dist, user_history_rec) / self.n_genres
-    
-    def ace(self, rec_list, user_history):
-        N = len(rec_list)
-        ACE = 0
-        for k in range(1, N):
-            ACE += self.CE_at_k(rec_list, user_history, k)
-        return ACE/N
-
-    
-    def mace(self, is_calibrated=True, subset=None):
+    def _mace(self, is_calibrated=True, subset=None):
 
         # Select only the rows for the given subset of users, if provided
         df = self.calibration_df
-        if subset is not None:
-            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
-
+        user2history = self.user2history
         if(is_calibrated):
             col = "calibrated_rec"
         else:
             col = "top_k_rec_id"
 
-        num_users = len(df)
-        ACE_U = 0
-        for u in tqdm(df.index, total=num_users):
-            user = df.iloc[u]
-            rec = user[col]
-            history = self.user2history[u]
-            ACE_U += self.ace(rec, history)
-
-        return ACE_U / num_users
-
+        return mace(
+            df,
+            user2history,
+            subset=subset,
+            rec_col=col,
+            n_genres=self.n_genres,
+            item2genreMap=self.item2genreMap,
+        )
     
     def calibrate_for_users(self, subset=None):
         calibrated_rec = []

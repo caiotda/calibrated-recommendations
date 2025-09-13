@@ -1,5 +1,10 @@
-from scipy.stats import entropy
 import numpy as np
+from scipy.stats import entropy
+from tqdm import tqdm
+
+from constants import USER_COL, ITEM_COL, GENRE_COL
+from calibrationUtils import calculate_genre_distribution
+
 
 def KL(p, q):
     return entropy(p, q)
@@ -51,3 +56,36 @@ def get_kl_divergence(
     p_normalized = p_clipped / p_clipped.sum()
     q_normalized = q_clipped / q_clipped.sum()
     return KL(p_normalized, q_normalized).item()
+
+def CE_at_k(rec_list, user_history, n_genres, item2genreMap, k=20):
+    rec_at_k = rec_list[:k]
+    rec_dist = calculate_genre_distribution(rec_at_k, item2genreMap)
+    user_history_rec = calculate_genre_distribution(user_history, item2genreMap)
+
+    return get_kl_divergence(rec_dist, user_history_rec) / n_genres
+
+def ace(rec_list, user_history, n_genres, item2genreMap):
+    N = len(rec_list)
+    ACE = 0
+    for k in range(1, N):
+        ACE += CE_at_k(rec_list, user_history, n_genres, item2genreMap, k)
+    return ACE/N
+
+
+
+def mace(df, user2history, recCol, n_genres, item2genreMap, subset=None):
+
+        # Select only the rows for the given subset of users, if provided
+        if subset is not None:
+            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
+
+        num_users = len(df)
+        ACE_U = 0
+        for u in tqdm(df.index, total=num_users):
+            row = df.iloc[u]
+            u = row["user"]
+            rec = row[recCol]
+            history = user2history[u]
+            ACE_U += ace(rec, history, n_genres, item2genreMap)
+
+        return ACE_U / num_users
