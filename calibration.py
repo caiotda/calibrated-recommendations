@@ -1,113 +1,105 @@
 import math
-from functools import reduce
 from collections import Counter
-from typing import Any
 
-import pandas as pd
 from tqdm import tqdm
 from torch import tensor, device, cuda
+from constants import ITEM_COL, USER_COL, GENRE_COL,  CALIBRATION_MODE_TO_COL_NAME
+from metrics import get_kl_divergence
 
-from constants import ITEM_COL, USER_COL, GENRE_COL
-from metrics import standardize_prob_distributions, get_kl_divergence
-from weight_functions import (
-    get_linear_time_weight_rating,
-    get_constant_weight,
-    get_rating_weight,
-    recommendation_twb_weighting,
-    recommendation_score_weigthing,
-)
 from calibrationUtils import (
     normalize_counter,
-    merge_dicts,
-    get_gleb_distribution,
-    create_prob_distribution_df,
-    get_weight,
+    CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION,
+    CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION, 
 )
+
+from distributions import update_candidate_list_genre_distribution, DISTRIBUTION_MODE_TO_FUCNTION
 
 from metrics import mace
 
 dev = device('cuda' if cuda.is_available() else 'cpu')
 
-
-CALIBRATION_MODE_TO_COL_NAME = {
-    "constant": "w_c",
-    "rating": "w_rui",
-    "linear_time": "w_twb"
-}
-
-
-CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION = {
-    "constant": get_constant_weight,
-    "rating": get_rating_weight,
-    "linear_time": get_linear_time_weight_rating
-}
-
-CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
-    "constant": recommendation_score_weigthing,
-    "rating": recommendation_score_weigthing,
-    "linear_time": recommendation_twb_weighting
-}
-
-
-DISTRIBUTION_MODE_TO_FUCNTION = {
-    'steck': create_prob_distribution_df,
-    'gleb': get_gleb_distribution
-}
-
-
 class Calibration:
-    def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck', _lambda=0.99):
-            
-        self._validate_modes(weight, distribution_mode)
 
-        genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[weight]
-
-
-        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
-        self._lambda = _lambda
-        self.distribution_function = DISTRIBUTION_MODE_TO_FUCNTION[distribution_mode]
-        self.weight = weight
-        ratings_df["constant"] = 1
-        self.ratings_df = ratings_df.transform(genre_importance_function)
-        self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
-        self.item2genre_df = self._setup_data_preprocessing()
-        self.candidates  = tensor(ratings_df.item.unique(), device=dev)
-
-        # Transform item2genre_df to a dictionary mapping item to genres
-        self.item2genreMap = dict(zip(self.item2genre_df[ITEM_COL], self.item2genre_df["genres"]))
-        self.rec_df = self.preprocess_recommendation_for_calibration(recommendation_df)
-        self.calibration_df = self._setup_calibration_df()
-       
-        self.item2genre_count_dict = self.item2genre_df.set_index(ITEM_COL)["genre_count"].to_dict()
-        self.item_to_genre_dict_map =  dict(zip(self.item2genre_df[ITEM_COL], self.item2genre_df["genre_distribution"]))
-        self.all_genres = set(self.item2genre_df.genres.explode().unique())
-        self.default_genre_count = {genre: 0 for genre in self.all_genres}
-        self.n_genres = len(self.all_genres)
-        
     def _validate_modes(self, weight, distribution_mode):
+        """
+            Validates if the weight strategy and genre distribution mode
+            have been implemented
+        """
         if weight not in CALIBRATION_MODE_TO_COL_NAME:
             raise ValueError(f"Invalid weight mode: {weight}. Must be one of {list(CALIBRATION_MODE_TO_COL_NAME.keys())}")
         if distribution_mode not in DISTRIBUTION_MODE_TO_FUCNTION:
             raise ValueError(f"Invalid distribution mode: {distribution_mode}. Must be one of {list(DISTRIBUTION_MODE_TO_FUCNTION.keys())}")
 
 
-    def preprocess_recommendation_for_calibration(self, rec_df):
-        df = rec_df.copy()
-        df["rank"] = df.groupby(USER_COL).cumcount() + 1
-        df[GENRE_COL] = df["top_k_rec_id"].astype(int).map(self.item2genreMap)
+    def set_calibration_modes(self):
+        """
+            If calibration mode (weight) and genre distribution are valid (distribution_mode),
+            sets the corresponding genre importance function and distribution function.
+        """
+        self._validate_modes(self.weight, self.distribution_mode)
+        self.genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[self.weight]
+        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[self.weight]
+        self.distribution_function = DISTRIBUTION_MODE_TO_FUCNTION[self.distribution_mode]
+
+    def prepare_dataframe_for_calibration(self):
+        """
+            Applies the genre importance function, yielding 
+        """
+        self.ratings_df["constant"] = 1
+        self.ratings_df[GENRE_COL] = self.ratings_df[GENRE_COL].apply(tuple)
+        self.ratings_df = self.ratings_df.transform(self.genre_importance_function)
+        self.candidates  = tensor(self.ratings_df.item.unique(), device=dev)
+
+    def build_lookup_mappings(self):
+        """
+        Construct lookup maps used by calibration:
+        - user2history: user -> list of items in their history
+        - item2genre_count_dict: item -> genre count dict
+        - default_genre_count: default zero-count dict for all genres
+        - item2genreMap : item -> list of genres of the item
+        """
+        self.user2history = self.ratings_df.groupby(USER_COL).agg({ITEM_COL: list}).to_dict()[ITEM_COL]
+
+        item2genre = self.ratings_df.copy()[[ITEM_COL, GENRE_COL]].drop_duplicates()
+        item2genre[GENRE_COL] = item2genre[GENRE_COL].apply(list)
+
+        item2genre['genre_distribution'] = item2genre[GENRE_COL].apply(lambda genres: normalize_counter(Counter(genres)))
+        item2genre['genre_count'] = item2genre[GENRE_COL].apply(lambda genres: dict(Counter(genres)))
+
+        self.item2genre_df = item2genre
+        self.item2genreMap = dict(zip(self.item2genre_df[ITEM_COL], self.item2genre_df["genres"]))
+
+        self.item2genre_count_dict = self.item2genre_df.set_index(ITEM_COL)["genre_count"].to_dict()
+        all_genres = set(self.item2genre_df.genres.explode().unique())
+        self.default_genre_count = {genre: 0 for genre in all_genres}
+
+
+
+
+
+
+    def preprocess_recommendation_for_calibration(self):
+        """
+        Prepare recommendation DataFrame for calibration in-place.
+
+        Adds per-user rank, maps item IDs to genres, and computes a per-row
+        weight column used for calibration.
+
+        """
+        self.recommendation_df["rank"] = self.recommendation_df.groupby(USER_COL).cumcount() + 1
+        self.recommendation_df[GENRE_COL] = self.recommendation_df["top_k_rec_id"].astype(int).map(self.item2genreMap)
         weight_function = CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION[self.weight]
-        df[f"rec_{self.weight_col_name}"] = df.apply(weight_function, axis=1)
-        return df
+        self.recommendation_df[f"rec_{self.weight_col_name}"] = self.recommendation_df.apply(weight_function, axis=1)
 
 
     def _setup_calibration_df(self):
         history_genre_distribution =  self.distribution_function(self.ratings_df, self.weight_col_name)
         user_recommendations_genre_distribution = self.distribution_function(
-            ratings=self.rec_df.rename(columns={"top_k_rec_id": ITEM_COL}),
+            ratings=self.recommendation_df.rename(columns={"top_k_rec_id": ITEM_COL}),
             weight_col=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
         )
 
-        grouped = self.rec_df.groupby(USER_COL).agg({"top_k_rec_id": list, "top_k_rec_score": list})
+        grouped = self.recommendation_df.groupby(USER_COL).agg({"top_k_rec_id": list, "top_k_rec_score": list})
         grouped["rec_id_2_score_map"] = grouped.apply(
                     lambda row: dict(zip(row["top_k_rec_id"], row["top_k_rec_score"])), axis=1
                 )
@@ -121,21 +113,21 @@ class Calibration:
 
         return calibration_df
     
-    def _setup_data_preprocessing(self):
-        df_copy = self.ratings_df.copy()
-        df_copy["genres"] = df_copy["genres"].apply(tuple)
-        item2genre = df_copy[["item", "genres"]].drop_duplicates()
-        item2genre["genres"] = item2genre["genres"].apply(list)
-
-        item2genre['genre_distribution'] = item2genre['genres'].apply(lambda genres: normalize_counter(Counter(genres)))
-        item2genre['genre_count'] = item2genre['genres'].apply(lambda genres: dict(Counter(genres)))
-
-        return item2genre
     
-    def _update_candidate_list_genre_distribution(self, current_list_dist, new_item_dist):
-        a, b =  standardize_prob_distributions(current_list_dist, new_item_dist)
-        return  merge_dicts(a,b)
-    
+    def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck', _lambda=0.99):
+        self.ratings_df = ratings_df
+        self.recommendation_df = recommendation_df
+        self.weight = weight
+        self.distribution_mode = distribution_mode
+        self._lambda = _lambda
+
+        self.set_calibration_modes()    
+        self.prepare_dataframe_for_calibration()
+        self.build_lookup_mappings()
+
+        self.preprocess_recommendation_for_calibration()
+        self.calibration_df = self._setup_calibration_df()
+       
 
     def _mace(self, is_calibrated=True, subset=None):
 
@@ -179,10 +171,6 @@ class Calibration:
         else:
             self.calibration_df = df
 
-    #def calibration_error(self):
-
-
-
     def calibrate(self, row, k=20):
         _lambda = self._lambda
         history_dist = row["p(g|u)"]
@@ -217,7 +205,7 @@ class Calibration:
                 
                 # Now we see the genre distribution if we consider candidate, alongside
                 # the relevancy of the list if we consider it.
-                updated_genre_counter_with_candidate = self._update_candidate_list_genre_distribution(current_candidate_list_genre_counter, candidate_genre_counter)
+                updated_genre_counter_with_candidate = update_candidate_list_genre_distribution(current_candidate_list_genre_counter, candidate_genre_counter)
                 relevancy_so_far_with_candidate = relevancy_so_far + candidate_relevancy
 
                 # Turn the counter into a probability distribution to calculate the kl divergence

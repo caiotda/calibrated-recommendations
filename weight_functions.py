@@ -1,4 +1,3 @@
-import pandas as pd
 def get_linear_time_weight_rating(df):
     user_min_ts = df.groupby("user")["timestamp"].transform("min")
     user_max_ts = df.groupby("user")["timestamp"].transform("max")
