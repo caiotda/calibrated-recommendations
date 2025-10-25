@@ -1,12 +1,4 @@
-from constants import ITEM_COL, USER_COL, GENRE_COL
 from typing import Counter
-from weight_functions import (
-    get_linear_time_weight_rating,
-    get_constant_weight,
-    get_rating_weight,
-    recommendation_twb_weighting,
-    recommendation_score_weigthing,
-)
 
 
 
@@ -45,18 +37,3 @@ def element_wise_mult(dict1, dict2):
 
 def element_wise_mult_nonzero(a, b):
     return {key: a[key] * b[key] if a[key] != 0 else 0 for key in a}
-
-
-
-
-CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION = {
-    "constant": get_constant_weight,
-    "rating": get_rating_weight,
-    "linear_time": get_linear_time_weight_rating
-}
-
-CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
-    "constant": recommendation_score_weigthing,
-    "rating": recommendation_score_weigthing,
-    "linear_time": recommendation_twb_weighting
-}

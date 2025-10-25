@@ -1,6 +1,8 @@
+from constants import USER_COL
+
 def get_linear_time_weight_rating(df):
-    user_min_ts = df.groupby("user")["timestamp"].transform("min")
-    user_max_ts = df.groupby("user")["timestamp"].transform("max")
+    user_min_ts = df.groupby(USER_COL)["timestamp"].transform("min")
+    user_max_ts = df.groupby(USER_COL)["timestamp"].transform("max")
     denom = user_max_ts - user_min_ts
     denom = denom.replace(0, 1)  
     df["w_twb"] = df["rating"] * (df["timestamp"] - user_min_ts) / denom
@@ -24,4 +26,3 @@ def recommendation_twb_weighting(rec_df):
 
 def recommendation_score_weigthing(rec_df):
     return rec_df["top_k_rec_score"]
-    
