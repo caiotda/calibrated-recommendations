@@ -1,5 +1,5 @@
 
-from calibratedRecs.weight_functions import (
+from weight_functions import (
     get_constant_weight,
     get_linear_time_weight_rating,
     get_rating_weight,
@@ -21,7 +21,6 @@ CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION = {
     "rating": recommendation_score_weigthing,
     "linear_time": recommendation_twb_weighting
 }
-
 
 CALIBRATION_MODE_TO_COL_NAME = {
     "constant": "w_c",
