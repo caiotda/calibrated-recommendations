@@ -8,6 +8,9 @@ data/
 # C extensions
 *.so
 
+# Artifacts
+artifacts/
+
 # Distribution / packaging
 .Python
 build/
