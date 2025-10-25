@@ -57,23 +57,24 @@ def get_kl_divergence(
     q_normalized = q_clipped / q_clipped.sum()
     return KL(p_normalized, q_normalized).item()
 
-def CE_at_k(rec_list, user_history, n_genres, item2genreMap, k=20):
+def CE_at_k(rec_list, user_history, item2genreMap, k=20):
     rec_at_k = rec_list[:k]
+    # E se o tipo de calibração muda? A maneira de calcular a distribuição deveria mudar também.
     rec_dist = calculate_genre_distribution(rec_at_k, item2genreMap)
     user_history_rec = calculate_genre_distribution(user_history, item2genreMap)
 
-    return get_kl_divergence(rec_dist, user_history_rec) / n_genres
+    return get_kl_divergence(rec_dist, user_history_rec) 
 
-def ace(rec_list, user_history, n_genres, item2genreMap):
+def ace(rec_list, user_history, item2genreMap):
     N = len(rec_list)
     ACE = 0
-    for k in range(1, N):
-        ACE += CE_at_k(rec_list, user_history, n_genres, item2genreMap, k)
+    for k in range(1, N+1):
+        ACE += CE_at_k(rec_list, user_history, item2genreMap, k)
     return ACE/N
 
 
 
-def mace(df, user2history, recCol, n_genres, item2genreMap, subset=None):
+def mace(df, user2history, recCol, item2genreMap, subset=None):
 
         # Select only the rows for the given subset of users, if provided
         if subset is not None:
@@ -86,6 +87,6 @@ def mace(df, user2history, recCol, n_genres, item2genreMap, subset=None):
             u = row["user"]
             rec = row[recCol]
             history = user2history[u]
-            ACE_U += ace(rec, history, n_genres, item2genreMap)
+            ACE_U += ace(rec, history, item2genreMap)
 
         return ACE_U / num_users

@@ -56,7 +56,7 @@ DISTRIBUTION_MODE_TO_FUCNTION = {
 
 
 class Calibration:
-    def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck'):
+    def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck', _lambda=0.99):
             
         self._validate_modes(weight, distribution_mode)
 
@@ -64,6 +64,7 @@ class Calibration:
 
 
         self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[weight]
+        self._lambda = _lambda
         self.distribution_function = DISTRIBUTION_MODE_TO_FUCNTION[distribution_mode]
         self.weight = weight
         ratings_df["constant"] = 1
@@ -150,8 +151,7 @@ class Calibration:
             df,
             user2history,
             subset=subset,
-            rec_col=col,
-            n_genres=self.n_genres,
+            recCol=col,
             item2genreMap=self.item2genreMap,
         )
     
@@ -183,7 +183,8 @@ class Calibration:
 
 
 
-    def calibrate(self, row, k=20, _lambda = 0.99):
+    def calibrate(self, row, k=20):
+        _lambda = self._lambda
         history_dist = row["p(g|u)"]
         rec_to_relevancy_map = row["rec_id_2_score_map"]
         item_to_genre_count_map = self.item2genre_count_dict
