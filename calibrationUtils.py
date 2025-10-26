@@ -1,7 +1,6 @@
 from typing import Counter
 
 
-
 UNKNOWN_GENRE = "(no genres listed)"
 
 
@@ -32,6 +31,14 @@ def merge_dicts(dict1, dict2):
 
 def element_wise_mult(dict1, dict2):
     return {key: dict1[key] * dict2[key] for key in dict1.keys() & dict2.keys() if dict1[key] != 0 and dict2[key] != 0}
+
+def count_zero_in_both(dict1, dict2):
+    """Return number of keys present in both dicts whose values are zero in both."""
+    return sum(1 for k in set(dict1) & set(dict2) if dict1.get(k) == 0 and dict2.get(k) == 0)
+
+
+def element_wise_sub_module(dict1, dict2):
+    return {key: abs(dict1[key] - dict2[key]) for key in dict1.keys() & dict2.keys()}
 
 
 

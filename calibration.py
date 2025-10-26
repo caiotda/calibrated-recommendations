@@ -3,14 +3,16 @@ from collections import Counter
 
 from tqdm import tqdm
 from torch import tensor, device, cuda
-from constants import ITEM_COL, USER_COL, GENRE_COL,  CALIBRATION_MODE_TO_COL_NAME
+from constants import ITEM_COL, USER_COL, GENRE_COL
 from metrics import get_kl_divergence
 
-from calibrationUtils import (
-    normalize_counter,
+from mappings import (
+    CALIBRATION_MODE_TO_COL_NAME,
     CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION,
-    CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION, 
+    CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION,
 )
+
+from calibrationUtils import normalize_counter
 
 from distributions import update_candidate_list_genre_distribution, DISTRIBUTION_MODE_TO_FUCNTION
 
@@ -73,11 +75,6 @@ class Calibration:
         all_genres = set(self.item2genre_df.genres.explode().unique())
         self.default_genre_count = {genre: 0 for genre in all_genres}
 
-
-
-
-
-
     def preprocess_recommendation_for_calibration(self):
         """
         Prepare recommendation DataFrame for calibration in-place.
@@ -91,20 +88,23 @@ class Calibration:
         weight_function = CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION[self.weight]
         self.recommendation_df[f"rec_{self.weight_col_name}"] = self.recommendation_df.apply(weight_function, axis=1)
 
-
     def _setup_calibration_df(self):
+        # Calculates p(g|u)
         history_genre_distribution =  self.distribution_function(self.ratings_df, self.weight_col_name)
+        # Calculates q(g|u)
         user_recommendations_genre_distribution = self.distribution_function(
             ratings=self.recommendation_df.rename(columns={"top_k_rec_id": ITEM_COL}),
             weight_col=f"rec_{self.weight_col_name}").rename(columns=({"p(g|u)": "q(g|u)"})
         )
-
+        # Sets up recommendation score per item - required to run MMR optimization
         grouped = self.recommendation_df.groupby(USER_COL).agg({"top_k_rec_id": list, "top_k_rec_score": list})
         grouped["rec_id_2_score_map"] = grouped.apply(
                     lambda row: dict(zip(row["top_k_rec_id"], row["top_k_rec_score"])), axis=1
                 )
 
 
+        # Output is a dataframe containing p(g|u), q(g|u) and the recommendation list, alongside each item
+        # score.
         calibration_df = (
             history_genre_distribution
             .merge(user_recommendations_genre_distribution,"inner", USER_COL)
@@ -112,7 +112,6 @@ class Calibration:
         )
 
         return calibration_df
-    
     
     def __init__(self, ratings_df, recommendation_df, weight='constant', distribution_mode='steck', _lambda=0.99):
         self.ratings_df = ratings_df
@@ -127,8 +126,6 @@ class Calibration:
 
         self.preprocess_recommendation_for_calibration()
         self.calibration_df = self._setup_calibration_df()
-       
-
     def _mace(self, is_calibrated=True, subset=None):
 
         # Select only the rows for the given subset of users, if provided
