@@ -2,10 +2,10 @@ import numpy as np
 from scipy.stats import entropy
 from tqdm import tqdm
 
-from constants import USER_COL, ITEM_COL, GENRE_COL
-from calibrationUtils import calculate_genre_distribution, element_wise_sub_module, count_zero_in_both
+from calibratedRecs.constants import USER_COL, ITEM_COL, GENRE_COL
+from calibratedRecs.calibrationUtils import calculate_genre_distribution, element_wise_sub_module, count_zero_in_both
 
-from distributions import standardize_prob_distributions
+from calibratedRecs.distributions import standardize_prob_distributions
 
 
 def KL(p, q):

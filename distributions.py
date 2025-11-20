@@ -3,8 +3,8 @@ import numpy as np
 
 from functools import reduce
 from typing import Counter
-from constants import USER_COL, ITEM_COL, GENRE_COL
-from calibrationUtils import element_wise_mult_nonzero, normalize_counter, merge_dicts
+from calibratedRecs.constants import USER_COL, ITEM_COL, GENRE_COL
+from calibratedRecs.calibrationUtils import element_wise_mult_nonzero, normalize_counter, merge_dicts
 
 def create_prob_distribution_df(ratings, weight_col='w_c'):
     """
