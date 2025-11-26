@@ -11,7 +11,7 @@ def get_weight(genres_list, df, col_name):
 
 def calculate_genre_distribution(item_list, genre_map):
 
-    genre_counts = Counter([genre for item in item_list for genre in genre_map[item]])
+    genre_counts = Counter([genre for item in item_list for genre in genre_map.get(item, UNKNOWN_GENRE)])
     return {genre: count / sum(genre_counts.values()) for genre, count in genre_counts.items()}
 
 
