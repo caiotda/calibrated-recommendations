@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.stats import entropy
-from tqdm import tqdm
+import torch
 
-from calibratedRecs.constants import USER_COL
-from calibratedRecs.calibrationUtils import calculate_genre_distribution, element_wise_sub_module
+
+from calibratedRecs.calibrationUtils import build_weight_tensor
 
 from calibratedRecs.distributions import standardize_prob_distributions
 
@@ -33,41 +33,22 @@ def get_kl_divergence(
     q_normalized = q_clipped / q_clipped.sum()
     return KL(p_normalized, q_normalized).item()
 
-def CE_at_k(rec_list, user_history, item2genreMap, k=20):
-    rec_at_k = rec_list[:k]
-    # E se o tipo de calibração muda? A maneira de calcular a distribuição deveria mudar também.
-    rec_dist = calculate_genre_distribution(rec_at_k, item2genreMap)
-    user_history_dist = calculate_genre_distribution(user_history, item2genreMap)
-    
-    # Checks the absolute difference for every genre pertaining to an item in the recommendation
-    # list or in the user history
 
 
-    user_history_std, rec_dist_std = standardize_prob_distributions(user_history_dist, rec_dist)
-    distribution_shift = list(element_wise_sub_module(user_history_std, rec_dist_std).values())
-    
-    return np.mean(distribution_shift).item()
+def CE(weight_tensor, user_history_tensor, p_g_i):
+    q_g_u_k = weight_tensor @ p_g_i / weight_tensor.sum(dim=1, keepdim=True)
+    return torch.abs(user_history_tensor - q_g_u_k).mean(dim=1)
 
-def ace(rec_list, user_history, item2genreMap):
-    N = len(rec_list)
-    ACE = 0
-    for k in range(1, N+1):
-        ACE += CE_at_k(rec_list, user_history, item2genreMap, k)
-    return ACE/N
+def mace(rec_df, n_items, p_g_u, p_g_i):
+        
+        rec_tensor = torch.tensor(rec_df["top_k_rec_id"].tolist()).long()
+        score_tensor = torch.tensor(rec_df["top_k_rec_score"].tolist())
+        user_tensor = torch.tensor(rec_df["user"].tolist()).long()
 
-
-
-def mace(df, user2history, recCol, item2genreMap, subset=None):
-
-        # Select only the rows for the given subset of users, if provided
-        if subset is not None:
-            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
-
-        num_users = len(df)
-        ACE_U = 0
-        for u in tqdm(df.index, total=num_users):
-            row = df.iloc[u]
-            rec = row[recCol]
-            history = user2history[u]
-            ACE_U += ace(rec, history, item2genreMap)
-        return ACE_U / num_users
+        N = rec_tensor.shape[1]
+        sum_CEs_tensor = torch.zeros(size=(user_tensor.shape[0], ))
+        for k in range(1, N+1):
+            w_u_i_k = build_weight_tensor(user_tensor, rec_tensor, score_tensor, n_items, k)
+            sum_CEs_tensor += CE(weight_tensor=w_u_i_k, user_history_tensor=p_g_u, p_g_i=p_g_i)
+        ACE = sum_CEs_tensor / N
+        return ACE.mean().item()
