@@ -1,6 +1,10 @@
 import numpy as np
 from scipy.stats import entropy
 import torch
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7311e45 (Vectorizes MACE)
 
 
 from calibratedRecs.calibrationUtils import build_weight_tensor
@@ -33,6 +37,20 @@ def get_kl_divergence(
     q_normalized = q_clipped / q_clipped.sum()
     return KL(p_normalized, q_normalized).item()
 
+def build_weight_tensor(user_tensor, rec_ids, rec_scores, n_items, k):
+        rec_at_k = rec_ids[:, :k]
+        rec_ids_index = rec_at_k.reshape(1, -1)
+
+        scores_at_k = rec_scores[:, :k]
+        scores_index = scores_at_k.reshape(1, -1)
+
+        user_tensor_interleaved = user_tensor.repeat_interleave(k)
+        
+        n_users = len(user_tensor)
+        w_u_i = torch.zeros(size=(n_users, n_items))
+        w_u_i[user_tensor_interleaved, rec_ids_index] = scores_index
+
+        return w_u_i.to(torch.float64)
 
 
 def CE(weight_tensor, user_history_tensor, p_g_i):
