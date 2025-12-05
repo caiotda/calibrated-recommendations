@@ -1,7 +1,24 @@
 from typing import Counter
+import torch
 
 UNKNOWN_GENRE = "(no genres listed)"
 
+
+
+def build_weight_tensor(user_tensor, rec_ids, rec_scores, n_items, k):
+        rec_at_k = rec_ids[:, :k]
+        rec_ids_index = rec_at_k.reshape(1, -1)
+
+        scores_at_k = rec_scores[:, :k]
+        scores_index = scores_at_k.reshape(1, -1)
+
+        user_tensor_interleaved = user_tensor.repeat_interleave(k)
+        
+        n_users = len(user_tensor)
+        w_u_i = torch.zeros(size=(n_users, n_items))
+        w_u_i[user_tensor_interleaved, rec_ids_index] = scores_index
+
+        return w_u_i.to(torch.float64)
 
 def get_weight(genres_list, df, col_name):
     return df.loc[genres_list.index[0], col_name]
