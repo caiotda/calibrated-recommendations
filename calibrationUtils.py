@@ -5,10 +5,11 @@ from constants import USER_COL, ITEM_COL, GENRE_COL
 
 UNKNOWN_GENRE = "(no genres listed)"
 
+dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Talvez faça mais sentido isso ficar dentro do construtor da classe calibration. Esse cara
 # é totalmente estático.
-def build_item_genre_distribution_tensor(df):
+def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
     item2genre = df[[ITEM_COL, GENRE_COL]].drop_duplicates()
     all_genres = item2genre.explode("genres")["genres"].drop_duplicates().tolist()
     std_dict = {genre: 0 for genre in all_genres}

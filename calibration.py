@@ -1,69 +1,48 @@
 import math
+import torch
 from collections import Counter
 
 from tqdm import tqdm
-from torch import tensor, device, cuda
 from constants import ITEM_COL, USER_COL, GENRE_COL
 from metrics import get_kl_divergence
 
-from mappings import (
-    CALIBRATION_MODE_TO_COL_NAME,
-    CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION,
-    CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION,
-)
+from mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
+
+
+from weight_functions import get_linear_time_weight_rating
 
 from calibrationUtils import (
     build_item_genre_distribution_tensor,
     build_user_genre_history_distribution,
+    build_weight_tensor,
     normalize_counter,
-)
-
-from distributions import (
     update_candidate_list_genre_distribution,
-    DISTRIBUTION_MODE_TO_FUCNTION,
 )
 
 from metrics import mace
 
-dev = device("cuda" if cuda.is_available() else "cpu")
+dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Calibration:
-
-    def _validate_modes(self, weight, distribution_mode):
-        """
-        Validates if the weight strategy and genre distribution mode
-        have been implemented
-        """
-        if weight not in CALIBRATION_MODE_TO_COL_NAME:
-            raise ValueError(
-                f"Invalid weight mode: {weight}. Must be one of {list(CALIBRATION_MODE_TO_COL_NAME.keys())}"
-            )
-        if distribution_mode not in DISTRIBUTION_MODE_TO_FUCNTION:
-            raise ValueError(
-                f"Invalid distribution mode: {distribution_mode}. Must be one of {list(DISTRIBUTION_MODE_TO_FUCNTION.keys())}"
-            )
 
     def set_calibration_modes(self):
         """
         If calibration mode (weight) and genre distribution are valid (distribution_mode),
         sets the corresponding genre importance function and distribution function.
         """
-        self._validate_modes(self.weight, self.distribution_mode)
-        self.genre_importance_function = CALIBRATION_MODE_TO_DATA_PREPROCESS_FUNCTION[
-            self.weight
-        ]
-        self.weight_col_name = CALIBRATION_MODE_TO_COL_NAME[self.weight]
-        self.distribution_function = DISTRIBUTION_MODE_TO_FUCNTION[
+        validate_modes(self.weight, self.distribution_mode)
+
+        self.distribution_function = DISTRIBUTION_MODE_TO_FUNCTION[
             self.distribution_mode
         ]
-        self.recommendation_weight_function = (
-            CALIBRATION_MODE_TO_RECOMMENDATION_PREPROCESS_FUNCTION[self.weight]
-        )
 
+    # Posso reaproveitar essa funcao pro rec df tb, não?
     def preprocess_dataframe_for_calibration(self, df):
         processed_df = df.copy()
         processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
+        processed_df["constant"] = 1
+        processed_df = get_linear_time_weight_rating(processed_df)
         return processed_df
 
     def __init__(
@@ -78,16 +57,26 @@ class Calibration:
         self.n_users = ratings_df[USER_COL].nunique()
         self.n_items = ratings_df[ITEM_COL].nunique()
 
-        self.recommendation_df = recommendation_df
+        self.recommendation_df = recommendation_df.explode(
+            ["top_k_rec_id", "top_k_rec_score"]
+        ).rename({"top_k_rec_id": ITEM_COL, "top_k_rec_score": "rating"})
         self.weight = weight
         self.distribution_mode = distribution_mode
         self._lambda = _lambda
 
         self.set_calibration_modes()
-        self.preprocess_dataframe_for_calibration()
-        self.item_distribution_tensor = build_item_genre_distribution_tensor(ratings_df)
+        self.weight_tensor_history = build_weight_tensor(
+            self.ratings_df, weight_col=self.weight
+        )
+        self.weight_tensor_recommendation = build_weight_tensor(
+            self.recommendation_df, weight_col="rating"
+        )
+
+        self.item_distribution_tensor = build_item_genre_distribution_tensor(
+            ratings_df, distribution_mode
+        )
         self.user_history_tensor = build_user_genre_history_distribution(
-            ratings_df, self.item_distribution_tensor
+            ratings_df, self.item_distribution_tensor, distribution_mode
         )
 
     def _mace(self):
@@ -95,7 +84,6 @@ class Calibration:
 
         return mace(
             self.rec_df,
-            self.n_items,
             p_g_u=self.user_history_genre_distribution_tensor,
             p_g_i=self.item_distribution_tensor,
         )
@@ -108,9 +96,15 @@ class Calibration:
         df = self.calibration_df
         if subset is not None:
             df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
+        rec_tensor = torch.tensor(df[ITEM_COL].tolist(), device=dev).int()
+        score_tensor = torch.tensor(df["rating"].tolist(), dtype=torch.long, device=dev)
+        users_tensor = torch.tensor(df["user"].tolist(), device=dev).int()
 
         for i in tqdm(df.index, total=len(df)):
-            rec, dist = self.calibrate(df.iloc[i])
+            user = users_tensor[i, :]
+            rec_score_tensor = score_tensor[i, :]
+            recommendation_tensor = rec_tensor[i, :]
+            rec, dist = self.calibrate(user, recommendation_tensor, rec_score_tensor)
 
             calibrated_rec.append(rec)
             calibrated_dist.append(dist)
@@ -124,55 +118,56 @@ class Calibration:
         else:
             self.calibration_df = df
 
-    def calibrate(self, row, k=20):
+    def calibrate(self, user, recommendation_tensor, rec_score_tensor, k=20):
         _lambda = self._lambda
-        history_dist = row["p(g|u)"]
-        rec_to_relevancy_map = row["rec_id_2_score_map"]
-        item_to_genre_count_map = self.item2genre_count_dict
+        # Trocar isso por tensor.
+        candidates = list(zip(recommendation_tensor, rec_score_tensor))
         total_relevancy = 0.0
         calibrated_rec = []
         # Start out with a uniform distribution with P(x) = 0 for every gender
         # x
-        candidate_distribution = self.default_genre_count
+        # TODO: aqui eu assumo que faço a calibração usuario por usuario.
+        candidate_distribution = torch.zeros(
+            size=(1, self.user_history_tensor.shape[1]),
+            device=self.user_history_tensor.device,
+        )
 
+        user_history = self.user_history_tensor[user]
         # Gets recomendation ids
-        candidates = list(rec_to_relevancy_map.keys())
         # Don´t stop until we have a candidate list of size k
         while len(calibrated_rec) < k:
             objective = -math.inf
             best_candidate = None
             best_candidate_relevancy = 0
 
-            current_candidate_list_genre_counter = candidate_distribution
-
             relevancy_so_far = total_relevancy
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
             # I = (1-lambda)  * sum_relevance(list) + lambda * kl_div(history_dist, list)
-            for candidate in candidates:
-                # We first get the candidate item information: its predicted
-                # relevancy and its genre distribution
-                candidate_relevancy = rec_to_relevancy_map[candidate]
-
-                candidate_genre_counter = item_to_genre_count_map[candidate]
+            for candidate, candidate_relevancy in candidates:
 
                 # Now we see the genre distribution if we consider candidate, alongside
                 # the relevancy of the list if we consider it.
-                updated_genre_counter_with_candidate = (
-                    update_candidate_list_genre_distribution(
-                        current_candidate_list_genre_counter, candidate_genre_counter
-                    )
+
+                # TODO: os tres passos abaixo podem ser resumidos em:
+                # 1. Recalcular o tensor w_u_i, tendo em vista a nova lista de candidatos
+                # 2. Calcular q(g|u)
+                # 3. Tirar a divergencia KL entre q(g|u) e p(g|u)
+                candidate_list_distribution = update_candidate_list_genre_distribution(
+                    user,
+                    self.weight_tensor_recommendation,
+                    self.item_distribution_tensor,
+                    calibrated_rec + candidate,
                 )
-                relevancy_so_far_with_candidate = relevancy_so_far + candidate_relevancy
 
                 # Turn the counter into a probability distribution to calculate the kl divergence
                 # in reference to the users history
-                updated_genre_distribution_with_candidate_normalized = (
-                    normalize_counter(updated_genre_counter_with_candidate)
-                )
+
                 kl_divergence_candidate = get_kl_divergence(
-                    history_dist, updated_genre_distribution_with_candidate_normalized
+                    user_history, candidate_list_distribution
                 )
+
+                relevancy_so_far_with_candidate = relevancy_so_far + candidate_relevancy
 
                 # Finally, we measure the Maximal Marginal Relevance
                 MMR_of_candidate_list = (
@@ -184,7 +179,7 @@ class Calibration:
                     best_candidate = candidate
                     best_candidate_relevancy = candidate_relevancy
                     objective = MMR_of_candidate_list
-                    best_cand_distribution = updated_genre_counter_with_candidate
+                    best_cand_distribution = candidate_list_distribution
             # Commit to the found candidate
 
             # 1. Atualizar a lista calibrada com esse melhor candidato
