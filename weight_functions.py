@@ -1,22 +1,15 @@
 from constants import USER_COL
 
 def get_linear_time_weight_rating(df):
+    if "timestamp" not in df.columns:
+        raise ValueError("Column timestamp not found in DataFrame.")
     user_min_ts = df.groupby(USER_COL)["timestamp"].transform("min")
     user_max_ts = df.groupby(USER_COL)["timestamp"].transform("max")
     denom = user_max_ts - user_min_ts
     denom = denom.replace(0, 1)  
-    df["w_twb"] = df["rating"] * (df["timestamp"] - user_min_ts) / denom
+    df["linear_time"] = df["rating"] * (df["timestamp"] - user_min_ts) / denom
 
     return df
-
-def get_rating_weight(df):
-    df["w_rui"] = df["rating"]
-    return df
-
-def get_constant_weight(df):
-    df["w_c"] = df["constant"]
-    return df
-
 
 #################### Recommmendation ones ###################################
 

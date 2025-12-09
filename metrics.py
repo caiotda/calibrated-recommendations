@@ -1,22 +1,18 @@
+from calibrationUtils import clip_tensors_at_k
 import numpy as np
 from scipy.stats import entropy
 import torch
-<<<<<<< HEAD
-=======
-
->>>>>>> 7311e45 (Vectorizes MACE)
-
 
 from calibratedRecs.calibrationUtils import build_weight_tensor
 
 from calibratedRecs.distributions import standardize_prob_distributions
 
+
 def KL(p, q):
     return entropy(p, q)
 
-def get_kl_divergence(
-    dist_p: dict, dist_q: dict, epsilon: float = 1e-9
-) -> float:
+
+def get_kl_divergence(dist_p: dict, dist_q: dict, epsilon: float = 1e-9) -> float:
     """
     Calculates the KL divergence between two probability distributions.
 
@@ -38,21 +34,33 @@ def get_kl_divergence(
     return KL(p_normalized, q_normalized).item()
 
 
-
 def CE(weight_tensor, user_history_tensor, p_g_i):
     q_g_u_k = weight_tensor @ p_g_i / weight_tensor.sum(dim=1, keepdim=True)
     return torch.abs(user_history_tensor - q_g_u_k).mean(dim=1)
 
-def mace(rec_df, n_items, p_g_u, p_g_i):
-        
-        rec_tensor = torch.tensor(rec_df["top_k_rec_id"].tolist()).long()
-        score_tensor = torch.tensor(rec_df["top_k_rec_score"].tolist())
-        user_tensor = torch.tensor(rec_df["user"].tolist()).long()
 
-        N = rec_tensor.shape[1]
-        sum_CEs_tensor = torch.zeros(size=(user_tensor.shape[0], ))
-        for k in range(1, N+1):
-            w_u_i_k = build_weight_tensor(user_tensor, rec_tensor, score_tensor, n_items, k)
-            sum_CEs_tensor += CE(weight_tensor=w_u_i_k, user_history_tensor=p_g_u, p_g_i=p_g_i)
-        ACE = sum_CEs_tensor / N
-        return ACE.mean().item()
+def mace(rec_df, p_g_u, p_g_i):
+
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    rec_tensor = torch.tensor(rec_df["top_k_rec_id"].tolist(), device=dev).int()
+    score_tensor = torch.tensor(rec_df["top_k_rec_score"].tolist(), dtype=torch.long, device=dev)
+    user_tensor = torch.tensor(rec_df["user"].tolist(), device=dev).int()
+
+    N = rec_tensor.shape[1]
+    sum_CEs_tensor = torch.zeros(size=(user_tensor.shape[0],))
+    for k in range(1, N + 1):
+        user_tensor_clipped, rec_tensor_clipped, score_tensor_clipped = (
+            clip_tensors_at_k(user_tensor, rec_tensor, score_tensor, k)
+        )
+        w_u_i_k = build_weight_tensor(
+            user_tensor=user_tensor_clipped,
+            item_tensor=rec_tensor_clipped,
+            ratings_tensor=score_tensor_clipped,
+            df=None,  # TODO: Gamb.
+            weight_col=None,
+        )
+        sum_CEs_tensor += CE(
+            weight_tensor=w_u_i_k, user_history_tensor=p_g_u, p_g_i=p_g_i
+        )
+    ACE = sum_CEs_tensor / N
+    return ACE.mean().item()

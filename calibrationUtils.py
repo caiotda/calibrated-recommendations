@@ -24,24 +24,52 @@ def build_item_genre_distribution_tensor(df):
     return torch.tensor(genre_vector).double()
 
 
-def build_user_genre_history_distribution(df, p_g_i, weight_col="rating"):
-
-    user_weight_df = df[[USER_COL, ITEM_COL, weight_col]]
-    w_u_i_steck_df = user_weight_df[["user", "item", "rating"]]
+def build_tensors_from_df(df, weight_col):
+    if weight_col not in df.columns:
+        raise ValueError(f"Column '{weight_col}' not found in DataFrame.")
+    w_u_i_steck_df = df[[USER_COL, ITEM_COL, weight_col]]
     user_weight_vector = list(w_u_i_steck_df.itertuples(index=None, name=None))
-    pre_tensor = torch.tensor(user_weight_vector)
-    x, y, rating = pre_tensor[:, 0].int(), pre_tensor[:, 1].int(), pre_tensor[:, 2]
-    n_users = x.max().item() + 1
-    n_items = y.max().item() + 1
+    pre_tensor = torch.tensor(user_weight_vector, device=dev, dtype=torch.long)
+    x, y, weight = pre_tensor[:, 0].int(), pre_tensor[:, 1].int(), pre_tensor[:, 2]
+    return x, y, weight
 
-    w_u_i_tensor = torch.ones(size=(n_users, n_items), dtype=torch.long)
-    w_u_i_tensor[x, y] = rating
+
+def build_weight_tensor(
+    df, weight_col, user_tensor=None, item_tensor=None, ratings_tensor=None
+):
+    if user_tensor is None or item_tensor is None or ratings_tensor is None:
+        user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
+    n_users = user_tensor.max().item() + 1
+    n_items = item_tensor.max().item() + 1
+
+    w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.long, device=dev)
+    w_u_i_tensor[user_tensor, item_tensor] = ratings_tensor
     w_u_i_tensor = w_u_i_tensor.double()
 
+    return w_u_i_tensor
+
+
+def build_user_genre_history_distribution(
+    df, p_g_i, weight_col="rating", distribution_mode="steck"
+):
+
+    w_u_i_tensor = build_weight_tensor(df, weight_col)
     return (w_u_i_tensor @ p_g_i) / w_u_i_tensor.sum(dim=1, keepdim=True)
 
 
-def build_weight_tensor(user_tensor, rec_ids, rec_scores, n_items, k):
+def update_candidate_list_genre_distribution(
+    user, w_hat_u_i, item_distribution_tensor, candidate_list
+):
+    w_hat_norm = w_hat_u_i[user, candidate_list].reshape(-1, 1).sum(dim=1, keepdim=True)
+    subset_q_g_u = (
+        w_hat_u_i[user, candidate_list].reshape(-1, 1)
+        * item_distribution_tensor[candidate_list]
+        / w_hat_norm
+    )
+    return torch.nan_to_num(subset_q_g_u, 0)
+
+
+def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):
     rec_at_k = rec_ids[:, :k]
     rec_ids_index = rec_at_k.reshape(1, -1)
 
@@ -50,16 +78,11 @@ def build_weight_tensor(user_tensor, rec_ids, rec_scores, n_items, k):
 
     user_tensor_interleaved = user_tensor.repeat_interleave(k)
 
-    n_users = len(user_tensor)
-    w_u_i = torch.zeros(size=(n_users, n_items))
-    w_u_i[user_tensor_interleaved, rec_ids_index] = scores_index
-
-    return w_u_i.to(torch.float64)
+    return user_tensor_interleaved, rec_ids_index, scores_index
 
 
 def get_weight(genres_list, df, col_name):
     return df.loc[genres_list.index[0], col_name]
-
 
 
 def preprocess_genres(df, genre_col="genres"):
