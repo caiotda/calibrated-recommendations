@@ -36,12 +36,10 @@ def build_tensors_from_df(df, weight_col):
 
 
 def build_weight_tensor(
-    df, weight_col, user_tensor=None, item_tensor=None, ratings_tensor=None
+    df, weight_col, n_users, n_items, user_tensor=None, item_tensor=None, ratings_tensor=None
 ):
     if user_tensor is None or item_tensor is None or ratings_tensor is None:
         user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
-    n_users = user_tensor.max().item() + 1
-    n_items = item_tensor.max().item() + 1
 
     w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.long, device=dev)
     w_u_i_tensor[user_tensor, item_tensor] = ratings_tensor
