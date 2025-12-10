@@ -5,33 +5,25 @@ import torch
 
 from calibratedRecs.calibrationUtils import build_weight_tensor
 
-from calibratedRecs.distributions import standardize_prob_distributions
 
 
 def KL(p, q):
     return entropy(p, q)
 
-
-def get_kl_divergence(dist_p: dict, dist_q: dict, epsilon: float = 1e-9) -> float:
+def get_kl_divergence(dist_p: torch.Tensor, dist_q: torch.Tensor) -> float:
     """
-    Calculates the KL divergence between two probability distributions.
+    Calculates the KL divergence between two probability distributions represented as torch tensors.
 
     Parameters:
-        dist_a (dict[str, float]): First probability distribution, mapping genre to probability.
-        dist_b (dict[str, float]): Second probability distribution, mapping genre to probability.
-        epsilon (float): Small value to avoid division by zero.
+        dist_p (torch.Tensor): First probability distribution tensor.
+        dist_q (torch.Tensor): Second probability distribution tensor.
 
     Returns:
         float: KL divergence value.
     """
-    p_std, q_std = standardize_prob_distributions(dist_p, dist_q)
-    p_values = np.array(list(p_std.values()))
-    q_values = np.array(list(q_std.values()))
-    p_clipped = np.clip(p_values, epsilon, None)
-    q_clipped = np.clip(q_values, epsilon, None)
-    p_normalized = p_clipped / p_clipped.sum()
-    q_normalized = q_clipped / q_clipped.sum()
-    return KL(p_normalized, q_normalized).item()
+    dist_p_array = dist_p.cpu()
+    dist_q_array = dist_q.cpu()
+    return KL(dist_p_array, dist_q_array).item()
 
 
 def CE(weight_tensor, user_history_tensor, p_g_i):
