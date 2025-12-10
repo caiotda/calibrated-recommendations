@@ -51,29 +51,3 @@ def get_gleb_distribution(ratings, weight_col='rating'):
 
     return gleb_df_per_user[[USER_COL, "p(g|u)"]]
 
-
-
-def standardize_prob_distributions(
-    dist_a: dict, dist_b: dict
-) -> tuple[dict, dict]:
-    """
-    Standardizes two probability distributions by ensuring they have the same keys,
-    filling missing keys with zero, and sorting them.
-
-    Parameters:
-        dist_a (dict[str, float]): First probability distribution, mapping genre to probability.
-        dist_b (dict[str, float]): Second probability distribution, mapping genre to probability.
-
-    Returns:
-        tuple[dict[str, float], dict[str, float]]: Tuple of standardized and sorted distributions,
-        each mapping genre to probability.
-    """
-    all_keys = set(dist_a.keys()) | set(dist_b.keys())
-    for key in all_keys:
-        if key not in dist_a:
-            dist_a[key] = 0
-        if key not in dist_b:
-            dist_b[key] = 0
-    dist_a_sorted = dict(sorted(dist_a.items()))
-    dist_b_sorted = dict(sorted(dist_b.items()))
-    return dist_a_sorted, dist_b_sorted
