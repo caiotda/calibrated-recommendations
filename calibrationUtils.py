@@ -7,6 +7,7 @@ UNKNOWN_GENRE = "(no genres listed)"
 
 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 # Talvez faça mais sentido isso ficar dentro do construtor da classe calibration. Esse cara
 # é totalmente estático.
 def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
@@ -22,7 +23,7 @@ def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
         .apply(lambda dictionary: dict(sorted(dictionary.items())))
         .apply(lambda dictionary: list(dictionary.values()))
     ).tolist()
-    return torch.tensor(genre_vector).double()
+    return torch.tensor(genre_vector, device=dev).double()
 
 
 def build_tensors_from_df(df, weight_col):
@@ -36,7 +37,13 @@ def build_tensors_from_df(df, weight_col):
 
 
 def build_weight_tensor(
-    df, weight_col, n_users, n_items, user_tensor=None, item_tensor=None, ratings_tensor=None
+    df,
+    weight_col,
+    n_users,
+    n_items,
+    user_tensor=None,
+    item_tensor=None,
+    ratings_tensor=None,
 ):
     if user_tensor is None or item_tensor is None or ratings_tensor is None:
         user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
@@ -51,8 +58,9 @@ def build_weight_tensor(
 def build_user_genre_history_distribution(
     df, p_g_i, weight_col="rating", distribution_mode="steck"
 ):
-
-    w_u_i_tensor = build_weight_tensor(df, weight_col)
+    n_users = df[USER_COL].nunique()
+    n_items = df[ITEM_COL].nunique()
+    w_u_i_tensor = build_weight_tensor(df, weight_col, n_users=n_users, n_items=n_items)
     return (w_u_i_tensor @ p_g_i) / w_u_i_tensor.sum(dim=1, keepdim=True)
 
 
