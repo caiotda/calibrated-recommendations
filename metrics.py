@@ -1,16 +1,13 @@
 from calibrationUtils import clip_tensors_at_k
+from constants import ITEM_COL, USER_COL
 import numpy as np
-from scipy.stats import entropy
 import torch
 
 from calibratedRecs.calibrationUtils import build_weight_tensor
 
 
 
-def KL(p, q):
-    return entropy(p, q)
-
-def get_kl_divergence(dist_p: torch.Tensor, dist_q: torch.Tensor) -> float:
+def get_kl_divergence(dist_p: torch.Tensor, dist_q: torch.Tensor, epsilon: float = 1e-9) -> float:
     """
     Calculates the KL divergence between two probability distributions represented as torch tensors.
 
@@ -21,9 +18,11 @@ def get_kl_divergence(dist_p: torch.Tensor, dist_q: torch.Tensor) -> float:
     Returns:
         float: KL divergence value.
     """
-    dist_p_array = dist_p.cpu()
-    dist_q_array = dist_q.cpu()
-    return KL(dist_p_array, dist_q_array).item()
+    dist_p = dist_p + epsilon
+    dist_q = dist_q + epsilon
+
+    kl_div = torch.sum(dist_p * torch.log(dist_p / dist_q))
+    return kl_div.item()
 
 
 def CE(weight_tensor, user_history_tensor, p_g_i):
@@ -35,11 +34,11 @@ def CE(weight_tensor, user_history_tensor, p_g_i):
 def mace(rec_df, p_g_u, p_g_i):
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    rec_tensor = torch.tensor(rec_df["top_k_rec_id"].tolist(), device=dev).int()
+    rec_tensor = torch.tensor(rec_df[ITEM_COL].tolist(), device=dev).int()
     score_tensor = torch.tensor(
-        rec_df["top_k_rec_score"].tolist(), dtype=torch.long, device=dev
+        rec_df["rating"].tolist(), dtype=torch.long, device=dev
     )
-    user_tensor = torch.tensor(rec_df["user"].tolist(), device=dev).int()
+    user_tensor = torch.tensor(rec_df[USER_COL].tolist(), device=dev).int()
 
     n_users = p_g_u.shape[0]
     n_items = p_g_i.shape[0]

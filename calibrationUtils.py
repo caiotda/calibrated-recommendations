@@ -67,13 +67,15 @@ def build_user_genre_history_distribution(
 def update_candidate_list_genre_distribution(
     user, w_hat_u_i, item_distribution_tensor, candidate_list
 ):
-    w_hat_norm = w_hat_u_i[user, candidate_list].reshape(-1, 1).sum(dim=1, keepdim=True)
+    # In this specific case, w_hat_u_is just a vector, not a 2d matrix.
+    # So we sum on dim 0 instead of 1.
+    w_hat_norm = w_hat_u_i[user, candidate_list].sum(dim=0, keepdim=True)
     subset_q_g_u = (
-        w_hat_u_i[user, candidate_list].reshape(-1, 1)
-        * item_distribution_tensor[candidate_list]
+        w_hat_u_i[user, candidate_list]
+        @ item_distribution_tensor[candidate_list]
         / w_hat_norm
     )
-    return torch.nan_to_num(subset_q_g_u, 0)
+    return torch.nan_to_num(subset_q_g_u, 0).reshape(-1)
 
 
 def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):

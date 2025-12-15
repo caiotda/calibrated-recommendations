@@ -61,6 +61,7 @@ class Calibration:
         self.weight_tensor_history = build_weight_tensor(
             self.ratings_df, weight_col=self.weight, n_users=n_users, n_items=n_items
         )
+        self.default_dtype = self.weight_tensor_history.dtype
         self.weight_tensor_recommendation = build_weight_tensor(
             exploded_recommendation_df,
             weight_col="rating",
@@ -75,57 +76,51 @@ class Calibration:
             self.ratings_df, self.item_distribution_tensor
         )
 
-    def _mace(self):
-        # TODO: dependendo se estiver calibrado ou não, vai alterar o p_g_i?
-
+    def _mace(self, is_calibrated=False):
+        if is_calibrated:
+            df = self.calibration_df
+        else:
+            df = self.recommendation_df
         return mace(
-            self.rec_df,
-            p_g_u=self.user_history_genre_distribution_tensor,
+            df,
+            p_g_u=self.user_history_tensor,
             p_g_i=self.item_distribution_tensor,
         )
 
-    def calibrate_for_users(self, subset=None):
+    def calibrate_for_users(self):
+        calibrated_rec_scores = []
         calibrated_rec = []
-        calibrated_dist = []
 
         # Select only the rows for the given subset of users, if provided
         df = self.calibration_df
-        if subset is not None:
-            df = df[df[USER_COL].isin(subset)].reset_index(drop=True)
         rec_tensor = torch.tensor(df[ITEM_COL].tolist(), device=dev).int()
-        score_tensor = torch.tensor(df["rating"].tolist(), dtype=torch.long, device=dev)
+        score_tensor = torch.tensor(df["rating"].tolist(), dtype=torch.float32, device=dev)
         users_tensor = torch.tensor(df[USER_COL].tolist(), device=dev).int()
 
         for i in tqdm(df.index, total=len(df)):
-            user = users_tensor[i, :]
-            rec_score_tensor = score_tensor[i, :]
-            recommendation_tensor = rec_tensor[i, :]
-            rec, dist = self.calibrate(user, recommendation_tensor, rec_score_tensor)
+            user = users_tensor[i].item()
+            rec_score_list = score_tensor[i, :].tolist()
+            recommendation_list = rec_tensor[i, :].tolist()
+            reranked_rec, calibrated_rec_score,  = self.calibrate(
+                user, recommendation_list, rec_score_list
+            )
+            # Zip, sort by score descending, then unzip
+            calibrated_rec.append(list(reranked_rec))
+            calibrated_rec_scores.append(list(calibrated_rec_score))
 
-            calibrated_rec.append(rec)
-            calibrated_dist.append(dist)
+        self.calibration_df[ITEM_COL] = calibrated_rec
+        self.calibration_df["rating"] = calibrated_rec_scores
 
-        df["calibrated_rec"] = calibrated_rec
-        df["calibrated_dist"] = calibrated_dist
 
-        if subset is not None:
-            self.calibration_df.loc[df.index, "calibrated_rec"] = df["calibrated_rec"]
-            self.calibration_df.loc[df.index, "calibrated_dist"] = df["calibrated_dist"]
-        else:
-            self.calibration_df = df
-
-    def calibrate(self, user, recommendation_tensor, rec_score_tensor, k=20):
+    def calibrate(self, user, recommendation_list, rec_score_list, k=20):
         _lambda = self._lambda
         # Trocar isso por tensor.
-        candidates = list(zip(recommendation_tensor, rec_score_tensor))
+        candidates = list(zip(recommendation_list, rec_score_list))
         total_relevancy = 0.0
         calibrated_rec = []
+        calibrated_rec_relevancies = []
         # Start out with a uniform distribution with P(x) = 0 for every gender
         # x
-        candidate_distribution = torch.zeros(
-            size=(1, self.user_history_tensor.shape[1]),
-            device=self.user_history_tensor.device,
-        )
 
         user_history = self.user_history_tensor[user]
         # Gets recomendation ids
@@ -134,7 +129,6 @@ class Calibration:
             objective = -math.inf
             best_candidate = None
             best_candidate_relevancy = 0
-
             relevancy_so_far = total_relevancy
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
@@ -148,12 +142,11 @@ class Calibration:
                     user,
                     self.weight_tensor_recommendation,
                     self.item_distribution_tensor,
-                    calibrated_rec + candidate,
+                    calibrated_rec + [candidate],
                 )
 
                 # Turn the counter into a probability distribution to calculate the kl divergence
                 # in reference to the users history
-
                 kl_divergence_candidate = get_kl_divergence(
                     user_history, candidate_list_distribution
                 )
@@ -165,20 +158,15 @@ class Calibration:
                     (1 - _lambda) * relevancy_so_far_with_candidate
                     - _lambda * kl_divergence_candidate
                 )
-
                 if MMR_of_candidate_list > objective:
                     best_candidate = candidate
                     best_candidate_relevancy = candidate_relevancy
                     objective = MMR_of_candidate_list
-                    best_cand_distribution = candidate_list_distribution
             # Commit to the found candidate
 
-            # 1. Atualizar a lista calibrada com esse melhor candidato
             calibrated_rec.append(best_candidate)
-            # 2. Atualizar a soma da relevancia da lista ate agora
+            calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
-            # 3. Atualizar a distribuição de generos nessa nova lista
-            candidate_distribution = best_cand_distribution
-            # 4. Remover o candidato da lista
-            candidates.remove(best_candidate)
-        return calibrated_rec, normalize_counter(candidate_distribution)
+            candidates.remove((best_candidate, best_candidate_relevancy))
+
+        return calibrated_rec, calibrated_rec_relevancies
