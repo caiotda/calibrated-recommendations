@@ -49,8 +49,8 @@ class Calibration:
             [ITEM_COL, "rating"]
         )
 
-        n_users = self.ratings_df[USER_COL].nunique()
-        n_items = self.ratings_df[ITEM_COL].nunique()
+        n_users = self.ratings_df[USER_COL].max() + 1
+        n_items = self.ratings_df[ITEM_COL].max() + 1
         self.weight_tensor_history = build_weight_tensor(
             self.ratings_df, weight_col=self.weight, n_users=n_users, n_items=n_items
         )
@@ -63,10 +63,13 @@ class Calibration:
         )
 
         self.item_distribution_tensor = build_item_genre_distribution_tensor(
-            self.ratings_df
+            self.ratings_df, n_items
         )
         self.user_history_tensor = build_user_genre_history_distribution(
-            self.ratings_df, self.item_distribution_tensor
+            self.ratings_df,
+            self.item_distribution_tensor,
+            n_users=n_users,
+            n_items=n_items,
         )
 
     def _mace(self, is_calibrated=False):

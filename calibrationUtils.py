@@ -58,18 +58,20 @@ def build_weight_tensor(
     if user_tensor is None or item_tensor is None or ratings_tensor is None:
         user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
 
-    w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.long, device=dev)
+    w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.float32, device=dev)
     w_u_i_tensor[user_tensor, item_tensor] = ratings_tensor
-    w_u_i_tensor = w_u_i_tensor.double()
 
     return w_u_i_tensor
 
 
 def build_user_genre_history_distribution(
-    df, p_g_i, weight_col="rating", distribution_mode="steck"
+    df,
+    p_g_i,
+    n_users,
+    n_items,
+    weight_col="rating",
+    distribution_mode="steck",
 ):
-    n_users = df[USER_COL].nunique()
-    n_items = df[ITEM_COL].nunique()
     w_u_i_tensor = build_weight_tensor(df, weight_col, n_users=n_users, n_items=n_items)
     return (w_u_i_tensor @ p_g_i) / w_u_i_tensor.sum(dim=1, keepdim=True)
 
