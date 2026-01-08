@@ -20,9 +20,10 @@ def preprocess_dataframe_for_calibration(df):
 
 # Talvez faça mais sentido isso ficar dentro do construtor da classe calibration. Esse cara
 # é totalmente estático.
-def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
+def build_item_genre_distribution_tensor(df, n_items, distribution_mode="steck"):
     item2genre = df[[ITEM_COL, GENRE_COL]].drop_duplicates()
     all_genres = item2genre.explode("genres")["genres"].drop_duplicates().tolist()
+    n_genres = len(all_genres)
     std_dict = {genre: 0 for genre in all_genres}
     item2genre["genre_dist"] = item2genre["genres"].apply(
         lambda genre_list: normalize_counter(Counter(genre_list))
@@ -33,7 +34,11 @@ def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
         .apply(lambda dictionary: dict(sorted(dictionary.items())))
         .apply(lambda dictionary: list(dictionary.values()))
     ).tolist()
-    return torch.tensor(genre_vector, device=dev).double()
+    dist_tensor = torch.tensor(genre_vector, device=dev, dtype=torch.float32)
+    item_tensor = torch.tensor(item2genre.item.tolist(), device=dev, dtype=torch.long)
+    p_g_i = torch.zeros(size=(n_items, n_genres), dtype=torch.float32, device=dev)
+    p_g_i[item_tensor] = dist_tensor
+    return p_g_i
 
 
 def build_tensors_from_df(df, weight_col):
@@ -41,7 +46,7 @@ def build_tensors_from_df(df, weight_col):
         raise ValueError(f"Column '{weight_col}' not found in DataFrame.")
     w_u_i_steck_df = df[[USER_COL, ITEM_COL, weight_col]]
     user_weight_vector = list(w_u_i_steck_df.itertuples(index=None, name=None))
-    pre_tensor = torch.tensor(user_weight_vector, device=dev, dtype=torch.long)
+    pre_tensor = torch.tensor(user_weight_vector, device=dev, dtype=torch.float32)
     x, y, weight = pre_tensor[:, 0].int(), pre_tensor[:, 1].int(), pre_tensor[:, 2]
     return x, y, weight
 

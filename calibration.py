@@ -87,26 +87,31 @@ class Calibration:
         calibrated_rec_scores = []
         calibrated_rec = []
 
-        # Select only the rows for the given subset of users, if provided
-        df = self.calibration_df
+        df = (
+            self.calibration_df.groupby(USER_COL)
+            .agg({ITEM_COL: list, "rating": list})
+            .reset_index()
+        )
         rec_tensor = torch.tensor(df[ITEM_COL].tolist(), device=dev).int()
-        score_tensor = torch.tensor(df["rating"].tolist(), dtype=torch.float32, device=dev)
+        score_tensor = torch.tensor(
+            df["rating"].tolist(), dtype=torch.float32, device=dev
+        )
         users_tensor = torch.tensor(df[USER_COL].tolist(), device=dev).int()
 
         for i in tqdm(df.index, total=len(df)):
             user = users_tensor[i].item()
             rec_score_list = score_tensor[i, :].tolist()
             recommendation_list = rec_tensor[i, :].tolist()
-            reranked_rec, calibrated_rec_score,  = self.calibrate(
-                user, recommendation_list, rec_score_list
-            )
+            (
+                reranked_rec,
+                calibrated_rec_score,
+            ) = self.calibrate(user, recommendation_list, rec_score_list)
             # Zip, sort by score descending, then unzip
             calibrated_rec.append(list(reranked_rec))
             calibrated_rec_scores.append(list(calibrated_rec_score))
 
         self.calibration_df[ITEM_COL] = calibrated_rec
         self.calibration_df["rating"] = calibrated_rec_scores
-
 
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
         _lambda = self._lambda
