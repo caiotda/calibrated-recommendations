@@ -9,14 +9,13 @@ from metrics import get_kl_divergence
 from mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
 
 
-from weight_functions import get_linear_time_weight_rating
-
 from calibrationUtils import (
     build_item_genre_distribution_tensor,
     build_user_genre_history_distribution,
     build_weight_tensor,
     normalize_counter,
     update_candidate_list_genre_distribution,
+    preprocess_dataframe_for_calibration,
 )
 
 from metrics import mace
@@ -27,12 +26,6 @@ dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Calibration:
 
     # Posso reaproveitar essa funcao pro rec df tb, não?
-    def preprocess_dataframe_for_calibration(self, df):
-        processed_df = df.copy()
-        processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
-        processed_df["constant"] = 1
-        processed_df = get_linear_time_weight_rating(processed_df)
-        return processed_df
 
     def __init__(
         self,
@@ -46,7 +39,7 @@ class Calibration:
         self.weight = weight
         self._lambda = _lambda
         self.distribution_function = DISTRIBUTION_MODE_TO_FUNCTION[distribution_mode]
-        self.ratings_df = self.preprocess_dataframe_for_calibration(ratings_df)
+        self.ratings_df = preprocess_dataframe_for_calibration(ratings_df)
 
         self.recommendation_df = recommendation_df.rename(
             columns={"top_k_rec_id": ITEM_COL, "top_k_rec_score": "rating"}

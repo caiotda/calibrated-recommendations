@@ -3,9 +3,19 @@ import torch
 from typing import Counter
 from constants import USER_COL, ITEM_COL, GENRE_COL
 
+from weight_functions import get_linear_time_weight_rating
+
 UNKNOWN_GENRE = "(no genres listed)"
 
 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def preprocess_dataframe_for_calibration(df):
+    processed_df = df.copy()
+    processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
+    processed_df["constant"] = 1
+    processed_df = get_linear_time_weight_rating(processed_df)
+    return processed_df
 
 
 # Talvez faça mais sentido isso ficar dentro do construtor da classe calibration. Esse cara
