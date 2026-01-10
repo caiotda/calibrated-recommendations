@@ -6,8 +6,9 @@ import torch
 from calibratedRecs.calibrationUtils import build_weight_tensor
 
 
-
-def get_kl_divergence(dist_p: torch.Tensor, dist_q: torch.Tensor, epsilon: float = 1e-9) -> float:
+def get_kl_divergence(
+    dist_p: torch.Tensor, dist_q: torch.Tensor, epsilon: float = 1e-9
+) -> float:
     """
     Calculates the KL divergence between two probability distributions represented as torch tensors.
 
@@ -36,15 +37,14 @@ def mace(rec_df, p_g_u, p_g_i):
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     rec_tensor = torch.tensor(rec_df[ITEM_COL].tolist(), device=dev).int()
     score_tensor = torch.tensor(
-        rec_df["rating"].tolist(), dtype=torch.long, device=dev
+        rec_df["rating"].tolist(), dtype=torch.float32, device=dev
     )
     user_tensor = torch.tensor(rec_df[USER_COL].tolist(), device=dev).int()
-
     n_users = p_g_u.shape[0]
     n_items = p_g_i.shape[0]
 
     N = rec_tensor.shape[1]
-    sum_CEs_tensor = torch.zeros(size=(user_tensor.shape[0],), device=dev)
+    sum_CEs_tensor = torch.zeros(size=(n_users,), device=dev)
     for k in range(1, N + 1):
         user_tensor_clipped, rec_tensor_clipped, score_tensor_clipped = (
             clip_tensors_at_k(user_tensor, rec_tensor, score_tensor, k)
@@ -61,5 +61,11 @@ def mace(rec_df, p_g_u, p_g_i):
         sum_CEs_tensor += CE(
             weight_tensor=w_u_i_k, user_history_tensor=p_g_u, p_g_i=p_g_i
         )
-    ACE = sum_CEs_tensor / N
+
+    not_nan_mask = ~torch.isnan(sum_CEs_tensor)
+    filtered_tensor = sum_CEs_tensor[not_nan_mask]
+    ACE = filtered_tensor / N
+    #   TODO: um ponto em aberto para mim: Isso ta sendo calculado pra todo usuario de fato?
+    # O .mean() Ta tirando uma media a nivel de genero ou a nivel de usuario?
+    # Mas acho que ta tirando, sim. O proprio sum_CEs tensor tem tamanho n_users.
     return ACE.mean().item()

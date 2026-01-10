@@ -74,9 +74,11 @@ class Calibration:
 
     def _mace(self, is_calibrated=False):
         if is_calibrated:
-            df = self.calibration_df
+            # TODO: temporario. Talvez seja bom eu tratar o cali df e rec df
+            # como agrupados.
+            df = self.calibration_df.groupby(USER_COL).agg(list).reset_index()
         else:
-            df = self.recommendation_df
+            df = self.recommendation_df.groupby(USER_COL).agg(list).reset_index()
         return mace(
             df,
             p_g_u=self.user_history_tensor,
@@ -109,19 +111,17 @@ class Calibration:
             # Zip, sort by score descending, then unzip
             calibrated_rec.append(list(reranked_rec))
             calibrated_rec_scores.append(list(calibrated_rec_score))
+        df[ITEM_COL] = calibrated_rec
+        df["rating"] = calibrated_rec_scores
 
-        self.calibration_df[ITEM_COL] = calibrated_rec
-        self.calibration_df["rating"] = calibrated_rec_scores
+        self.calibration_df = df.explode([ITEM_COL, "rating"])
 
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
         _lambda = self._lambda
-        # Trocar isso por tensor.
         candidates = list(zip(recommendation_list, rec_score_list))
         total_relevancy = 0.0
         calibrated_rec = []
         calibrated_rec_relevancies = []
-        # Start out with a uniform distribution with P(x) = 0 for every gender
-        # x
 
         user_history = self.user_history_tensor[user]
         # Gets recomendation ids
@@ -136,9 +136,7 @@ class Calibration:
             # I = (1-lambda)  * sum_relevance(list) + lambda * kl_div(history_dist, list)
             for candidate, candidate_relevancy in candidates:
 
-                # Now we see the genre distribution if we consider candidate, alongside
-                # the relevancy of the list if we consider it.
-
+                # Calculates the genre distribution including the candidate.
                 candidate_list_distribution = update_candidate_list_genre_distribution(
                     user,
                     self.weight_tensor_recommendation,
@@ -146,8 +144,7 @@ class Calibration:
                     calibrated_rec + [candidate],
                 )
 
-                # Turn the counter into a probability distribution to calculate the kl divergence
-                # in reference to the users history
+                # Gets KL divergence between user history genre distribution and candidate list
                 kl_divergence_candidate = get_kl_divergence(
                     user_history, candidate_list_distribution
                 )
