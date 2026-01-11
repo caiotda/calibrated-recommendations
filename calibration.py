@@ -3,6 +3,8 @@ import torch
 from collections import Counter
 
 from tqdm import tqdm
+import numpy as np
+
 from constants import ITEM_COL, USER_COL, GENRE_COL
 from metrics import get_kl_divergence
 
@@ -25,8 +27,6 @@ dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Calibration:
 
-    # Posso reaproveitar essa funcao pro rec df tb, não?
-
     def __init__(
         self,
         ratings_df,
@@ -38,6 +38,7 @@ class Calibration:
         validate_modes(weight, distribution_mode)
         self.weight = weight
         self._lambda = _lambda
+        self.is_calibrated = False
         self.distribution_function = DISTRIBUTION_MODE_TO_FUNCTION[distribution_mode]
         self.ratings_df = preprocess_dataframe_for_calibration(ratings_df)
 
@@ -51,6 +52,9 @@ class Calibration:
 
         n_users = self.ratings_df[USER_COL].max() + 1
         n_items = self.ratings_df[ITEM_COL].max() + 1
+
+        self.n_users = n_users
+        self.n_items = n_items
         self.weight_tensor_history = build_weight_tensor(
             self.ratings_df, weight_col=self.weight, n_users=n_users, n_items=n_items
         )
@@ -72,8 +76,32 @@ class Calibration:
             n_items=n_items,
         )
 
-    def _mace(self, is_calibrated=False):
-        if is_calibrated:
+        self.rec_distribution_tensor = build_user_genre_history_distribution(
+            self.calibration_df,
+            self.item_distribution_tensor,
+            n_users,
+            n_items,
+        )
+
+    def get_avg_kl_div(self, source="calibrated"):
+        kl = []
+        realized_dist = (
+            self.calibrated_rec_distribution_tensor
+            if source == "calibrated"
+            else self.rec_distribution_tensor
+        )
+        n_users = self.ratings_df[USER_COL].max() + 1
+        for u in range(n_users):
+            hist_u = self.user_history_tensor[u]
+            rec_u = realized_dist[u]
+            if not torch.isnan(hist_u).all() and not torch.isnan(rec_u).all():
+                kl_div = get_kl_divergence(hist_u, rec_u)
+                kl.append(kl_div)
+
+        return np.mean(kl).item()
+
+    def _mace(self):
+        if self.is_calibrated:
             # TODO: temporario. Talvez seja bom eu tratar o cali df e rec df
             # como agrupados.
             df = self.calibration_df.groupby(USER_COL).agg(list).reset_index()
@@ -115,6 +143,13 @@ class Calibration:
         df["rating"] = calibrated_rec_scores
 
         self.calibration_df = df.explode([ITEM_COL, "rating"])
+        self.calibrated_rec_distribution_tensor = build_user_genre_history_distribution(
+            self.calibration_df,
+            self.item_distribution_tensor,
+            self.n_users,
+            self.n_items,
+        )
+        self.is_calibrated = True
 
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
         _lambda = self._lambda
