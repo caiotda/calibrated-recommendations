@@ -102,8 +102,6 @@ class Calibration:
 
     def _mace(self):
         if self.is_calibrated:
-            # TODO: temporario. Talvez seja bom eu tratar o cali df e rec df
-            # como agrupados.
             df = self.calibration_df.groupby(USER_COL).agg(list).reset_index()
         else:
             df = self.recommendation_df.groupby(USER_COL).agg(list).reset_index()
