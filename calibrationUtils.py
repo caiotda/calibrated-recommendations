@@ -18,8 +18,6 @@ def preprocess_dataframe_for_calibration(df):
     return processed_df
 
 
-# Talvez faça mais sentido isso ficar dentro do construtor da classe calibration. Esse cara
-# é totalmente estático.
 def build_item_genre_distribution_tensor(df, n_items, distribution_mode="steck"):
     item2genre = df[[ITEM_COL, GENRE_COL]].drop_duplicates()
     all_genres = item2genre.explode("genres")["genres"].drop_duplicates().tolist()
@@ -107,10 +105,6 @@ def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):
     return user_tensor_interleaved, rec_ids_index, scores_index
 
 
-def get_weight(genres_list, df, col_name):
-    return df.loc[genres_list.index[0], col_name]
-
-
 def preprocess_genres(df, genre_col="genres"):
     new_df = df.copy()
     new_df[genre_col] = new_df[genre_col].map(
@@ -136,10 +130,6 @@ def element_wise_mult(dict1, dict2):
         for key in dict1.keys() & dict2.keys()
         if dict1[key] != 0 and dict2[key] != 0
     }
-
-
-def element_wise_sub_module(dict1, dict2):
-    return {key: abs(dict1[key] - dict2[key]) for key in dict1.keys() & dict2.keys()}
 
 
 def element_wise_mult_nonzero(a, b):
