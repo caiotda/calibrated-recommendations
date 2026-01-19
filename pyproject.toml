@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calibratedRecs"
+version = "0.1.0"
+description = "Simulation framework for Calibrating recommendations"
+readme = "README.md"
+requires-python = ">=3.9"
+
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "tqdm",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
