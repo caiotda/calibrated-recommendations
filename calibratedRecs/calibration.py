@@ -1,14 +1,13 @@
 import math
 import torch
-from collections import Counter
 
 from tqdm import tqdm
 import numpy as np
 
-from constants import ITEM_COL, USER_COL, GENRE_COL
-from metrics import get_kl_divergence
+from calibratedRecs.constants import ITEM_COL, USER_COL
+from calibratedRecs.metrics import get_kl_divergence, mace
 
-from mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
+from calibratedRecs.mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
 
 
 from calibratedRecs.calibrationUtils import (
@@ -18,8 +17,6 @@ from calibratedRecs.calibrationUtils import (
     update_candidate_list_genre_distribution,
     preprocess_dataframe_for_calibration,
 )
-
-from metrics import mace
 
 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -65,8 +62,8 @@ class Calibration:
             n_items=n_items,
         )
 
-        self.item_distribution_tensor = build_item_genre_distribution_tensor(
-            self.ratings_df, n_items
+        self.item_distribution_tensor = self.item_distribution_tensor = (
+            build_item_genre_distribution_tensor(self.ratings_df, n_items)
         )
         self.user_history_tensor = build_user_genre_history_distribution(
             self.ratings_df,

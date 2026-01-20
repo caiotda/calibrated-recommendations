@@ -1,24 +1,19 @@
-from distributions import  get_gleb_distribution
+from calibratedRecs.distributions import get_gleb_distribution
 
 CALIBRATION_MODE_TO_RECOMMENDATION_COL = {
     "constant": "top_k_rec_id",
     "rating": "top_k_rec_id",
-    "linear_time": "top_k_rec_id_cumulative_rank"
+    "linear_time": "top_k_rec_id_cumulative_rank",
 }
 
 CALIBRATION_MODE_TO_COL_NAME = {
     "constant": "w_c",
     "rating": "w_rui",
-    "linear_time": "w_twb"
+    "linear_time": "w_twb",
 }
 
 
-
-DISTRIBUTION_MODE_TO_FUNCTION = {
-    'steck': None,
-    'gleb': get_gleb_distribution
-}
-
+DISTRIBUTION_MODE_TO_FUNCTION = {"steck": None, "gleb": get_gleb_distribution}
 
 
 def validate_modes(weight, distribution_mode):
