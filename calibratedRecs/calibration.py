@@ -5,7 +5,7 @@ from tqdm import tqdm
 import numpy as np
 
 from calibratedRecs.constants import ITEM_COL, USER_COL
-from calibratedRecs.metrics import get_kl_divergence, mace
+from calibratedRecs.metrics import get_avg_kl_div, get_kl_divergence, mace
 
 from calibratedRecs.mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
 
@@ -80,21 +80,13 @@ class Calibration:
         )
 
     def get_avg_kl_div(self, source="calibrated"):
-        kl = []
         realized_dist = (
             self.calibrated_rec_distribution_tensor
             if source == "calibrated"
             else self.rec_distribution_tensor
         )
-        n_users = self.ratings_df[USER_COL].max() + 1
-        for u in range(n_users):
-            hist_u = self.user_history_tensor[u]
-            rec_u = realized_dist[u]
-            if not torch.isnan(hist_u).all() and not torch.isnan(rec_u).all():
-                kl_div = get_kl_divergence(hist_u, rec_u)
-                kl.append(kl_div)
-
-        return np.mean(kl).item()
+        users = self.ratings_df[USER_COL].unique()
+        return get_avg_kl_div(users, self.user_history_tensor, realized_dist)
 
     def _mace(self):
         if self.is_calibrated:

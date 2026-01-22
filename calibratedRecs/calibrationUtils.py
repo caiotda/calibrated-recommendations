@@ -14,7 +14,7 @@ def preprocess_dataframe_for_calibration(df):
     processed_df = df.copy()
     processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
     processed_df["constant"] = 1
-    processed_df = get_linear_time_weight_rating(processed_df)
+    # processed_df = get_linear_time_weight_rating(processed_df)
     return processed_df
 
 

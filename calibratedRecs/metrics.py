@@ -25,6 +25,18 @@ def get_kl_divergence(
     return kl_div.item()
 
 
+def get_avg_kl_div(users, user_history_tensor, realized_dist):
+    kl = []
+    for u in users:
+        hist_u = user_history_tensor[u]
+        rec_u = realized_dist[u]
+        if not torch.isnan(hist_u).all() and not torch.isnan(rec_u).all():
+            kl_div = get_kl_divergence(hist_u, rec_u)
+            kl.append(kl_div)
+
+    return np.mean(kl).item()
+
+
 def CE(weight_tensor, user_history_tensor, p_g_i):
     q_g_u_k = weight_tensor @ p_g_i / weight_tensor.sum(dim=1, keepdim=True)
     q_g_u_k_filled = torch.nan_to_num(q_g_u_k, nan=0.0)
