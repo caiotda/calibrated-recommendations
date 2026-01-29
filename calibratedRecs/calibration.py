@@ -27,6 +27,8 @@ class Calibration:
         self,
         ratings_df,
         recommendation_df,
+        n_users,
+        n_items,
         weight="constant",
         distribution_mode="steck",
         _lambda=0.99,
@@ -37,7 +39,6 @@ class Calibration:
         self.is_calibrated = False
         self.distribution_function = DISTRIBUTION_MODE_TO_FUNCTION[distribution_mode]
         self.ratings_df = preprocess_dataframe_for_calibration(ratings_df)
-
         self.recommendation_df = recommendation_df.rename(
             columns={"top_k_rec_id": ITEM_COL, "top_k_rec_score": "rating"}
         )
@@ -45,9 +46,6 @@ class Calibration:
         exploded_recommendation_df = self.recommendation_df.explode(
             [ITEM_COL, "rating"]
         )
-
-        n_users = self.ratings_df[USER_COL].max() + 1
-        n_items = self.ratings_df[ITEM_COL].max() + 1
 
         self.n_users = n_users
         self.n_items = n_items
@@ -61,15 +59,17 @@ class Calibration:
             n_users=n_users,
             n_items=n_items,
         )
-
         self.item_distribution_tensor = self.item_distribution_tensor = (
             build_item_genre_distribution_tensor(self.ratings_df, n_items)
         )
+
+        # Aqui ta dando ruim pra alguns usuarios.
         self.user_history_tensor = build_user_genre_history_distribution(
             self.ratings_df,
             self.item_distribution_tensor,
             n_users=n_users,
             n_items=n_items,
+            weight_col=self.weight,
         )
 
         self.rec_distribution_tensor = build_user_genre_history_distribution(
@@ -77,6 +77,7 @@ class Calibration:
             self.item_distribution_tensor,
             n_users,
             n_items,
+            weight_col="rating",
         )
 
     def get_avg_kl_div(self, source="calibrated"):
@@ -108,6 +109,10 @@ class Calibration:
             .agg({ITEM_COL: list, "rating": list})
             .reset_index()
         )
+        # Filter out df to keep only users with history
+        has_history = self.user_history_tensor.isnan().all(dim=1) == False
+        users_with_history = torch.nonzero(has_history).squeeze().cpu().numpy()
+        df = df[df[USER_COL].isin(users_with_history)].reset_index()
         rec_tensor = torch.tensor(df[ITEM_COL].tolist(), device=dev).int()
         score_tensor = torch.tensor(
             df["rating"].tolist(), dtype=torch.float32, device=dev
@@ -156,7 +161,6 @@ class Calibration:
             # item that maximizes the equation
             # I = (1-lambda)  * sum_relevance(list) + lambda * kl_div(history_dist, list)
             for candidate, candidate_relevancy in candidates:
-
                 # Calculates the genre distribution including the candidate.
                 candidate_list_distribution = update_candidate_list_genre_distribution(
                     user,
@@ -187,5 +191,4 @@ class Calibration:
             calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
             candidates.remove((best_candidate, best_candidate_relevancy))
-
         return calibrated_rec, calibrated_rec_relevancies

@@ -60,7 +60,6 @@ def build_weight_tensor(
 ):
     if user_tensor is None or item_tensor is None or ratings_tensor is None:
         user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
-
     w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.float32, device=dev)
     w_u_i_tensor[user_tensor, item_tensor] = ratings_tensor
 
