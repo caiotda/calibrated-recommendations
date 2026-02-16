@@ -166,8 +166,8 @@ class Calibration:
             relevancy_so_far = total_relevancy
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
-            # I = (1-lambda)  * sum_relevance(list) + lambda * kl_div(history_dist, list)
-            for candidate, candidate_relevancy in candidates:
+            # I = (1-lambda)  * sum_relevance(list) - lambda * kl_div(history_dist, list)
+            for idx, (candidate, candidate_relevancy) in enumerate(candidates):
                 # Calculates the genre distribution including the candidate.
                 candidate_list_distribution = update_candidate_list_genre_distribution(
                     user,
@@ -189,6 +189,7 @@ class Calibration:
                     - _lambda * kl_divergence_candidate
                 )
                 if MMR_of_candidate_list > objective:
+                    best_idx = idx
                     best_candidate = candidate
                     best_candidate_relevancy = candidate_relevancy
                     objective = MMR_of_candidate_list
@@ -197,5 +198,5 @@ class Calibration:
             calibrated_rec.append(best_candidate)
             calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
-            candidates.remove((best_candidate, best_candidate_relevancy))
+            candidates.pop(best_idx)
         return calibrated_rec, calibrated_rec_relevancies
