@@ -56,9 +56,9 @@ def mace(rec_df, p_g_u, p_g_i):
 
     N = rec_tensor.shape[1]
     sum_CEs_tensor = torch.zeros(size=(n_users,), device=dev)
-    for k in range(1, N + 1):
+    for i in range(1, N + 1):
         user_tensor_clipped, rec_tensor_clipped, score_tensor_clipped = (
-            clip_tensors_at_k(user_tensor, rec_tensor, score_tensor, k)
+            clip_tensors_at_k(user_tensor, rec_tensor, score_tensor, i)
         )
         w_u_i_k = build_weight_tensor(
             user_tensor=user_tensor_clipped,
