@@ -18,10 +18,18 @@ def get_kl_divergence(
     Returns:
         float: KL divergence value.
     """
-    dist_p = dist_p + epsilon
-    dist_q = dist_q + epsilon
+    # Performs clamping to avoid KL divergence for
+    # 0 valued genres, which would lead to NaN values.
+    dist_q = torch.clamp(dist_q, epsilon)
 
-    kl_div = torch.sum(dist_p * torch.log(dist_p / dist_q))
+    # Renormalize to ensure sum == 1.0
+    dist_q = dist_q / dist_q.sum()
+
+    mask = dist_p > 0
+    p_pos = dist_p[mask]
+    q_pos = dist_q[mask]
+
+    kl_div = torch.sum(p_pos * torch.log(p_pos / q_pos))
     return kl_div.item()
 
 
@@ -76,7 +84,5 @@ def mace(rec_df, p_g_u, p_g_i):
     not_nan_mask = ~torch.isnan(sum_CEs_tensor)
     filtered_tensor = sum_CEs_tensor[not_nan_mask]
     ACE = filtered_tensor / N
-    #   TODO: um ponto em aberto para mim: Isso ta sendo calculado pra todo usuario de fato?
-    # O .mean() Ta tirando uma media a nivel de genero ou a nivel de usuario?
-    # Mas acho que ta tirando, sim. O proprio sum_CEs tensor tem tamanho n_users.
+
     return ACE.mean().item()

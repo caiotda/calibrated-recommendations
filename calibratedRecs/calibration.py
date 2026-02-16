@@ -59,11 +59,10 @@ class Calibration:
             n_users=n_users,
             n_items=n_items,
         )
-        self.item_distribution_tensor = self.item_distribution_tensor = (
-            build_item_genre_distribution_tensor(self.ratings_df, n_items)
+        self.item_distribution_tensor = build_item_genre_distribution_tensor(
+            self.ratings_df
         )
 
-        # Aqui ta dando ruim pra alguns usuarios.
         self.user_history_tensor = build_user_genre_history_distribution(
             self.ratings_df,
             self.item_distribution_tensor,
