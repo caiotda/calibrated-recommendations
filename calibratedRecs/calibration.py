@@ -14,7 +14,6 @@ from calibratedRecs.calibrationUtils import (
     build_item_genre_distribution_tensor,
     build_user_genre_history_distribution,
     build_weight_tensor,
-    update_candidate_list_genre_distribution,
     preprocess_dataframe_for_calibration,
 )
 
@@ -70,7 +69,7 @@ class Calibration:
             n_items=n_items,
             weight_col=self.weight,
         )
-
+        # TODO: Isso ate faz sentido, mas daria pra otimizar.
         self.rec_distribution_tensor = build_user_genre_history_distribution(
             self.calibration_df,
             self.item_distribution_tensor,
@@ -152,51 +151,77 @@ class Calibration:
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
         _lambda = self._lambda
         candidates = list(zip(recommendation_list, rec_score_list))
+        assert (
+            len(candidates) > 0
+        ), "Candidate list is empty. Cannot calibrate an empty list."
         total_relevancy = 0.0
         calibrated_rec = []
         calibrated_rec_relevancies = []
 
-        user_history = self.user_history_tensor[user]
+        # Move tensors to CPU as calibration is inherently sequential
+        item_dist_cpu = self.item_distribution_tensor.cpu().detach()
+        weight_rec_cpu = self.weight_tensor_recommendation.cpu().detach()
+        user_history = user_history = self.user_history_tensor[user].cpu()
+
+        # Incremental tracking variables to replace the expensive
+        # update_candidate_list_genre_distribution call
+        running_weighted_genre_sum = torch.zeros_like(item_dist_cpu[0])
+        running_weight_total = 0.0
+
         # Gets recomendation ids
         # Don´t stop until we have a candidate list of size k
         while len(calibrated_rec) < k:
             objective = -math.inf
-            best_candidate = None
             best_candidate_relevancy = 0
-            relevancy_so_far = total_relevancy
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
             # I = (1-lambda)  * sum_relevance(list) - lambda * kl_div(history_dist, list)
             for idx, (candidate, candidate_relevancy) in enumerate(candidates):
+
+                # Optimized: We pull the individual weight and genre vector just once
+                w_i = weight_rec_cpu[user, candidate]
+                g_i = item_dist_cpu[candidate]
+
                 # Calculates the genre distribution including the candidate.
-                candidate_list_distribution = update_candidate_list_genre_distribution(
-                    user,
-                    self.weight_tensor_recommendation,
-                    self.item_distribution_tensor,
-                    calibrated_rec + [candidate],
-                )
+                # Logic from update_candidate_list_genre_distribution implemented incrementally:
+                new_weight_total = running_weight_total + w_i
+                if new_weight_total == 0:
+                    continue  # Avoid division by zero; if no weights, candidate doesn't affect distribution
+                candidate_list_distribution = (
+                    running_weighted_genre_sum + (w_i * g_i)
+                ) / new_weight_total
 
                 # Gets KL divergence between user history genre distribution and candidate list
                 kl_divergence_candidate = get_kl_divergence(
                     user_history, candidate_list_distribution
                 )
 
-                relevancy_so_far_with_candidate = relevancy_so_far + candidate_relevancy
+                relevancy_so_far_with_candidate = total_relevancy + candidate_relevancy
 
                 # Finally, we measure the Maximal Marginal Relevance
                 MMR_of_candidate_list = (
                     (1 - _lambda) * relevancy_so_far_with_candidate
                     - _lambda * kl_divergence_candidate
                 )
+
                 if MMR_of_candidate_list > objective:
                     best_idx = idx
                     best_candidate = candidate
                     best_candidate_relevancy = candidate_relevancy
+                    best_w_i = w_i
+                    best_g_i = g_i
                     objective = MMR_of_candidate_list
-            # Commit to the found candidate
 
+            # Commit to the found candidate
             calibrated_rec.append(best_candidate)
             calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
+
+            # Update the running totals for the next slot's calculations
+            running_weighted_genre_sum += best_w_i * best_g_i
+            running_weight_total += best_w_i
+
+            # Use pop with the index to avoid the value-collision bug
             candidates.pop(best_idx)
+
         return calibrated_rec, calibrated_rec_relevancies
