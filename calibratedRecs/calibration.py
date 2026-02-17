@@ -69,7 +69,6 @@ class Calibration:
             n_items=n_items,
             weight_col=self.weight,
         )
-        # TODO: Isso ate faz sentido, mas daria pra otimizar.
         self.rec_distribution_tensor = build_user_genre_history_distribution(
             self.calibration_df,
             self.item_distribution_tensor,
@@ -161,10 +160,8 @@ class Calibration:
         # Move tensors to CPU as calibration is inherently sequential
         item_dist_cpu = self.item_distribution_tensor.cpu().detach()
         weight_rec_cpu = self.weight_tensor_recommendation.cpu().detach()
-        user_history = user_history = self.user_history_tensor[user].cpu()
+        user_history = self.user_history_tensor[user].cpu()
 
-        # Incremental tracking variables to replace the expensive
-        # update_candidate_list_genre_distribution call
         running_weighted_genre_sum = torch.zeros_like(item_dist_cpu[0])
         running_weight_total = 0.0
 
@@ -183,7 +180,6 @@ class Calibration:
                 g_i = item_dist_cpu[candidate]
 
                 # Calculates the genre distribution including the candidate.
-                # Logic from update_candidate_list_genre_distribution implemented incrementally:
                 new_weight_total = running_weight_total + w_i
                 if new_weight_total == 0:
                     continue  # Avoid division by zero; if no weights, candidate doesn't affect distribution

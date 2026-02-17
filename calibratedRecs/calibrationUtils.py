@@ -148,24 +148,6 @@ def build_user_genre_history_distribution(
     return (w_u_i_tensor @ p_g_i) / w_u_i_tensor.sum(dim=1, keepdim=True)
 
 
-def update_candidate_list_genre_distribution(
-    user, w_hat_u_i, item_distribution_tensor, candidate_list
-):
-    # In this specific case, w_hat_u_is just a vector, not a 2d matrix.
-    # So we sum on dim 0 instead of 1.
-    w_hat_norm = w_hat_u_i[user, candidate_list].sum(dim=0, keepdim=True)
-    if w_hat_norm == 0:
-        # If no weights found for the candidate list, we fall back to steck std formulation
-        subset_q_g_u = item_distribution_tensor[candidate_list].mean(dim=0)
-    else:
-        subset_q_g_u = (
-            w_hat_u_i[user, candidate_list]
-            @ item_distribution_tensor[candidate_list]
-            / w_hat_norm
-        )
-    return subset_q_g_u
-
-
 def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):
     rec_at_k = rec_ids[:, :k]
     rec_ids_index = rec_at_k.reshape(1, -1)
