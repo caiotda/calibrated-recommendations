@@ -87,25 +87,12 @@ class Calibration:
         return get_avg_kl_div(users, self.user_history_tensor, realized_dist)
 
     def _mace(self, k=1000):
-        if self.is_calibrated:
-            df = (
-                self.calibration_df.groupby(USER_COL)
-                .agg(lambda x: list(x)[:k])
-                .reset_index()
-            )
-        else:
-            df = (
-                self.recommendation_df.groupby(USER_COL)
-                .agg(lambda x: list(x)[:k])
-                .reset_index()
-            )
+        df = self.calibration_df if self.is_calibrated else self.recommendation_df
         return mace(
-            df,
-            p_g_u=self.user_history_tensor,
-            p_g_i=self.item_distribution_tensor,
+            df, p_g_u=self.user_history_tensor, p_g_i=self.item_distribution_tensor, k=k
         )
 
-    def calibrate_for_users(self):
+    def calibrate_for_users(self, k=20):
         calibrated_rec_scores = []
         calibrated_rec = []
 
@@ -131,7 +118,7 @@ class Calibration:
             (
                 reranked_rec,
                 calibrated_rec_score,
-            ) = self.calibrate(user, recommendation_list, rec_score_list)
+            ) = self.calibrate(user, recommendation_list, rec_score_list, k=k)
             # Zip, sort by score descending, then unzip
             calibrated_rec.append(list(reranked_rec))
             calibrated_rec_scores.append(list(calibrated_rec_score))
@@ -148,6 +135,12 @@ class Calibration:
         self.is_calibrated = True
 
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
+
+        if k > len(recommendation_list):
+            print(
+                "K parameter larger than recommendation list! Defaulting to recommendation list size..."
+            )
+            k = len(recommendation_list)
         _lambda = self._lambda
         candidates = list(zip(recommendation_list, rec_score_list))
         assert (
