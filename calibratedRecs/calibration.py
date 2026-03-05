@@ -87,22 +87,9 @@ class Calibration:
         return get_avg_kl_div(users, self.user_history_tensor, realized_dist)
 
     def _mace(self, k=1000):
-        if self.is_calibrated:
-            df = (
-                self.calibration_df.groupby(USER_COL)
-                .agg(lambda x: list(x)[:k])
-                .reset_index()
-            )
-        else:
-            df = (
-                self.recommendation_df.groupby(USER_COL)
-                .agg(lambda x: list(x)[:k])
-                .reset_index()
-            )
+        df = self.calibration_df if self.is_calibrated else self.recommendation_df
         return mace(
-            df,
-            p_g_u=self.user_history_tensor,
-            p_g_i=self.item_distribution_tensor,
+            df, p_g_u=self.user_history_tensor, p_g_i=self.item_distribution_tensor, k=k
         )
 
     def calibrate_for_users(self):

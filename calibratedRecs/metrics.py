@@ -51,9 +51,13 @@ def CE(weight_tensor, user_history_tensor, p_g_i):
     return torch.abs(user_history_tensor - q_g_u_k_filled).mean(dim=1)
 
 
-def mace(rec_df, p_g_u, p_g_i):
+def mace(rec_df, p_g_u, p_g_i, k=1000):
 
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    assert p_g_u.device == p_g_i.device, "Tensorsmust be on the same device"
+    # Gets the top-k recommendation
+    rec_df = rec_df.groupby(USER_COL).agg(lambda x: list(x)[:k]).reset_index()
+
+    dev = p_g_u.device
     rec_tensor = torch.tensor(rec_df[ITEM_COL].tolist(), device=dev).int()
     score_tensor = torch.tensor(
         rec_df["rating"].tolist(), dtype=torch.float32, device=dev
