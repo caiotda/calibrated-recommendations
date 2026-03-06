@@ -52,8 +52,15 @@ def CE(weight_tensor, user_history_tensor, p_g_i):
 
 
 def mace(rec_df, p_g_u, p_g_i, k=1000):
+    """
+    Calculates Mean Average Calibration Error (MACE) between users history interests distribution
+    (p_g_u) and the recommendation (rec_df). We use the distribution of genres (p_g_i)
+    to assemble the realized distribution and only consider the first top-k items in the recommendation
 
-    assert p_g_u.device == p_g_i.device, "Tensorsmust be on the same device"
+    Although MACE is rank sensitive, we allow a top-k approach for measurement.
+    """
+
+    assert p_g_u.device == p_g_i.device, "Tensors must be on the same device"
     # Gets the top-k recommendation
     rec_df = rec_df.groupby(USER_COL).agg(lambda x: list(x)[:k]).reset_index()
 

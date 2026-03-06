@@ -135,6 +135,21 @@ class Calibration:
         self.is_calibrated = True
 
     def calibrate(self, user, recommendation_list, rec_score_list, k=20):
+        """
+        Selects top-k items maximizing balance between relevance and diversity using MMR with KL divergence.
+
+        Ins:
+        - user (int): User identifier.
+        - recommendation_list (list): Recommended item IDs.
+        - rec_score_list (list): Relevance scores.
+        - k (int, optional): Number of items. Defaults to 20.
+
+        Outs:
+        - tuple: (calibrated_rec (list), calibrated_rec_relevancies (list))
+
+        Raises:
+        - AssertionError: If candidates list is empty.
+        """
 
         if k > len(recommendation_list):
             print(

@@ -11,6 +11,10 @@ dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def preprocess_dataframe_for_calibration(df):
+    """
+    Prepares a dataframe for calibration. Creates the necessary weight columns
+    and turns genre collection into tuple.
+    """
     processed_df = df.copy()
     processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
     processed_df["constant"] = 1
@@ -101,7 +105,10 @@ def build_weight_tensor(
     ratings_tensor=None,
 ):
     """
-    Create a dense user-item weight tensor.
+    Create a dense user-item weight tensor. Esentially builds W_u_i matrix from users interactions
+    in df, using weight_col as value.
+
+    If df is not provided, we can build the formulation from tensors.
     ----------
     Parameters
 
@@ -144,11 +151,41 @@ def build_user_genre_history_distribution(
     weight_col="rating",
     distribution_mode="steck",
 ):
+    """
+    Builds a per‑user probability distribution over genres based on
+    the interaction history.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Interaction dataframe. Must contain user, item and a column named
+        `weight_col` with the interaction weight (e.g. rating).
+    p_g_i : torch.Tensor
+        Tensor of shape (n_items, n_genres) giving the probability of each
+        genre for every item.
+    n_users : int
+        Total number of distinct users.
+    n_items : int
+        Total number of distinct items.
+    weight_col : str, optional
+        Name of the column in `df` that holds the interaction weight.  Defaults
+        to `"rating"`.
+    distribution_mode : str, optional
+        Mode used to compute the distribution; kept for API compatibility
+        (currently not accessed). Defaults to `"steck"`.
+    Returns
+    -------
+    torch.Tensor A tensor of shape (n_users, n_genres)
+    """
     w_u_i_tensor = build_weight_tensor(df, weight_col, n_users=n_users, n_items=n_items)
     return (w_u_i_tensor @ p_g_i) / w_u_i_tensor.sum(dim=1, keepdim=True)
 
 
 def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):
+    """
+    Gets the first k entries of a recommendation entrie. Returns
+    a tuple of tensors where we can easily create a dataframe from
+    them using users as an index
+    """
     rec_at_k = rec_ids[:, :k]
     rec_ids_index = rec_at_k.reshape(1, -1)
 
@@ -158,14 +195,6 @@ def clip_tensors_at_k(user_tensor, rec_ids, rec_scores, k):
     user_tensor_interleaved = user_tensor.repeat_interleave(k)
 
     return user_tensor_interleaved, rec_ids_index, scores_index
-
-
-def preprocess_genres(df, genre_col="genres"):
-    new_df = df.copy()
-    new_df[genre_col] = new_df[genre_col].map(
-        lambda genre: None if genre == UNKNOWN_GENRE else genre.split("|")
-    )
-    return new_df
 
 
 def normalize_counter(counter):
