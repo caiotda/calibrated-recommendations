@@ -92,7 +92,7 @@ class Calibration:
             df, p_g_u=self.user_history_tensor, p_g_i=self.item_distribution_tensor, k=k
         )
 
-    def calibrate_for_users(self, k=20):
+    def calibrate_for_users(self, k=20, verbose=True):
         calibrated_rec_scores = []
         calibrated_rec = []
 
@@ -110,8 +110,7 @@ class Calibration:
             df["rating"].tolist(), dtype=torch.float32, device=dev
         )
         users_tensor = torch.tensor(df[USER_COL].tolist(), device=dev).int()
-
-        for i in tqdm(df.index, total=len(df)):
+        for i in tqdm(df.index, total=len(df), disable=not verbose):
             user = users_tensor[i].item()
             rec_score_list = score_tensor[i, :].tolist()
             recommendation_list = rec_tensor[i, :].tolist()

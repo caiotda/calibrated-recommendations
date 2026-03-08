@@ -60,7 +60,7 @@ def rerank_by_calibration(
         n_items=n_items,
     )
 
-    calibrator.calibrate_for_users(k=calib_k)
+    calibrator.calibrate_for_users(k=calib_k, verbose=False)
 
     cali_df = calibrator.calibration_df.groupby(USER_COL).agg(
         {ITEM_COL: list, "rating": list}
