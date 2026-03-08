@@ -2,13 +2,14 @@ import torch
 import pandas as pd
 from calibratedRecs.constants import USER_COL, ITEM_COL, GENRE_COL
 
-from calibration import Calibration
+from calibratedRecs.calibration import Calibration
+from calibratedRecs.constants import UNKNOWN_GENRE
 
 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def rerank_by_calibration(
-    recs, scores, ratings_df, n_users, n_items, calib_k, device=dev
+    recs, scores, ratings_df, n_users, n_items, calib_k, item2genreMap, device=dev
 ):
     """
     Rerank recommendations by calibration.
@@ -20,6 +21,7 @@ def rerank_by_calibration(
         n_users (int): Total number of users
         n_items (int): Total number of items
         calib_k (int): Number of top recommendations to consider for calibration
+        item2genremap (dict): Mapping from item IDs to their genres
         device (torch.device): Device to place tensors on (default: cuda if available, else cpu)
 
     Returns:
@@ -43,6 +45,14 @@ def rerank_by_calibration(
             "rating": recs_scores_list,
         }
     )
+
+    recs_df = recs_df.explode(["item", "rating"])
+    recs_df["genres"] = (
+        recs_df["item"]
+        .map(item2genreMap)
+        .apply(lambda x: x if isinstance(x, list) else [UNKNOWN_GENRE])
+    )
+
     calibrator = Calibration(
         ratings_df=ratings_df,
         recommendation_df=recs_df,

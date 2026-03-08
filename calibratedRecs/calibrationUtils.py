@@ -5,8 +5,6 @@ from calibratedRecs.constants import USER_COL, ITEM_COL, GENRE_COL
 
 from calibratedRecs.weight_functions import get_linear_time_weight_rating
 
-UNKNOWN_GENRE = "(no genres listed)"
-
 dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -27,7 +25,7 @@ def preprocess_dataframe_for_calibration(df):
     return processed_df
 
 
-def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
+def build_item_genre_distribution_tensor(df, n_items, distribution_mode="steck"):
     """
         Builds genre distribution tensor for each item (p_g_i, as in Steck's paper).
         Parameters
@@ -44,7 +42,6 @@ def build_item_genre_distribution_tensor(df, distribution_mode="steck"):
             for the corresponding item. The tensor is on the device referenced by the global variable `dev`.
     """
     item2genre = df[[ITEM_COL, GENRE_COL]].drop_duplicates()
-    n_items = item2genre.item.max() + 1
     all_genres = item2genre.explode("genres")["genres"].drop_duplicates().tolist()
     n_genres = len(all_genres)
     std_dict = {genre: 0 for genre in all_genres}
