@@ -9,7 +9,15 @@ dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def rerank_by_calibration(
-    recs, scores, ratings_df, n_users, n_items, calib_k, item2genreMap, device=dev
+    recs,
+    scores,
+    ratings_df,
+    n_users,
+    n_items,
+    calib_k,
+    item2genreMap,
+    calibration_type,
+    device=dev,
 ):
     """
     Rerank recommendations by calibration.
@@ -22,6 +30,7 @@ def rerank_by_calibration(
         n_items (int): Total number of items
         calib_k (int): Number of top recommendations to consider for calibration
         item2genremap (dict): Mapping from item IDs to their genres
+        calibration_type (str): Type of calibration to perform (e.g., "time_based", "rating_based", "constant" etc)
         device (torch.device): Device to place tensors on (default: cuda if available, else cpu)
 
     Returns:
@@ -58,6 +67,7 @@ def rerank_by_calibration(
         recommendation_df=recs_df,
         n_users=n_users,
         n_items=n_items,
+        weight=calibration_type,
     )
 
     calibrator.calibrate_for_users(k=calib_k, verbose=False)
