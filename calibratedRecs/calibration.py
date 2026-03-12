@@ -58,7 +58,6 @@ class Calibration:
         self.item_distribution_tensor = build_item_genre_distribution_tensor(
             self.ratings_df, n_items=self.n_items
         )
-
         self.user_history_tensor = build_user_genre_history_distribution(
             self.ratings_df,
             self.item_distribution_tensor,
@@ -92,7 +91,6 @@ class Calibration:
     def calibrate_for_users(self, k=20, verbose=True):
         calibrated_rec_scores = []
         calibrated_rec = []
-
         df = (
             self.calibration_df.groupby(USER_COL)
             .agg({ITEM_COL: list, "rating": list})

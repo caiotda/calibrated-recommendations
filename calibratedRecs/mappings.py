@@ -7,9 +7,9 @@ CALIBRATION_MODE_TO_RECOMMENDATION_COL = {
 }
 
 CALIBRATION_MODE_TO_COL_NAME = {
-    "constant": "w_c",
-    "rating": "w_rui",
-    "linear_time": "w_twb",
+    "constant": "constant",
+    "rating": "rating",
+    "linear_time": "linear_time",
 }
 
 

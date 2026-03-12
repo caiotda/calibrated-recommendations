@@ -1,7 +1,7 @@
 import torch
 
 from typing import Counter
-from calibratedRecs.constants import RATING_COL, USER_COL, ITEM_COL, GENRE_COL, TIME_COL
+from calibratedRecs.constants import RATING_COL, USER_COL, ITEM_COL, GENRE_COL
 
 from calibratedRecs.weight_functions import get_linear_time_weight_rating
 
@@ -21,19 +21,7 @@ def preprocess_dataframe_for_calibration(df):
     processed_df[RATING_COL] = processed_df.groupby(USER_COL)[RATING_COL].transform(
         lambda x: (x - x.min()) + 1e-8
     )
-
-    processed_df["max_timestamp"] = processed_df.groupby(USER_COL)[TIME_COL].transform(
-        "max"
-    )
-    processed_df["min_timestamp"] = processed_df.groupby(USER_COL)[TIME_COL].transform(
-        "min"
-    )
-
-    denom = processed_df["max_timestamp"] - processed_df["min_timestamp"]
-    processed_df["time_linear"] = (
-        processed_df[TIME_COL] - processed_df["min_timestamp"]
-    ) / denom.where(denom != 0, other=1)
-    # processed_df = get_linear_time_weight_rating(processed_df)
+    processed_df = get_linear_time_weight_rating(processed_df)
     return processed_df
 
 
@@ -100,7 +88,9 @@ def build_tensors_from_df(df, weight_col):
     w_u_i_steck_df = df[[USER_COL, ITEM_COL, weight_col]]
     user_weight_vector = list(w_u_i_steck_df.itertuples(index=None, name=None))
     pre_tensor = torch.tensor(user_weight_vector, device=dev, dtype=torch.float32)
-    x, y, weight = pre_tensor[:, 0].int(), pre_tensor[:, 1].int(), pre_tensor[:, 2]
+    x = pre_tensor[:, 0].int()
+    y = pre_tensor[:, 1].int()
+    weight = pre_tensor[:, 2]
     return x, y, weight
 
 

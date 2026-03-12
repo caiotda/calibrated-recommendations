@@ -1,15 +1,15 @@
-from calibratedRecs.constants import USER_COL
+from calibratedRecs.constants import USER_COL, TIME_COL
 
 
 def get_linear_time_weight_rating(df):
-    if "timestamp" not in df.columns:
-        raise ValueError("Column timestamp not found in DataFrame.")
-    user_min_ts = df.groupby(USER_COL)["timestamp"].transform("min")
-    user_max_ts = df.groupby(USER_COL)["timestamp"].transform("max")
+    if TIME_COL not in df.columns:
+        raise ValueError(f"Column {TIME_COL} not found in DataFrame.")
+    user_min_ts = df.groupby(USER_COL)[TIME_COL].transform("min")
+    user_max_ts = df.groupby(USER_COL)[TIME_COL].transform("max")
     denom = user_max_ts - user_min_ts
     denom = denom.replace(0, 1)
-    df["linear_time"] = df["rating"] * (df["timestamp"] - user_min_ts) / denom
-
+    df["linear_time"] = (df[TIME_COL] - user_min_ts) / denom
+    df["linear_time"] = df["linear_time"].fillna(0)
     return df
 
 
