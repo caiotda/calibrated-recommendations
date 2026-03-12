@@ -80,9 +80,9 @@ def mace(rec_df, p_g_u, p_g_i, k=1000):
             clip_tensors_at_k(user_tensor, rec_tensor, score_tensor, i)
         )
         w_u_i_k = build_weight_tensor(
-            user_tensor=user_tensor_clipped,
-            item_tensor=rec_tensor_clipped,
-            ratings_tensor=score_tensor_clipped,
+            user_vector=user_tensor_clipped,
+            item_vector=rec_tensor_clipped,
+            weight_vector=score_tensor_clipped,
             df=None,  # TODO: Gamb.
             weight_col=None,
             n_users=n_users,

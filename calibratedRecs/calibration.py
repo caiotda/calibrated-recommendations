@@ -48,10 +48,7 @@ class Calibration:
 
         self.n_users = n_users
         self.n_items = n_items
-        self.weight_tensor_history = build_weight_tensor(
-            self.ratings_df, weight_col=self.weight, n_users=n_users, n_items=n_items
-        )
-        self.default_dtype = self.weight_tensor_history.dtype
+
         self.weight_tensor_recommendation = build_weight_tensor(
             exploded_recommendation_df,
             weight_col="rating",

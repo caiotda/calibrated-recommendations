@@ -1,7 +1,7 @@
 import torch
 
 from typing import Counter
-from calibratedRecs.constants import USER_COL, ITEM_COL, GENRE_COL
+from calibratedRecs.constants import RATING_COL, USER_COL, ITEM_COL, GENRE_COL, TIME_COL
 
 from calibratedRecs.weight_functions import get_linear_time_weight_rating
 
@@ -18,9 +18,21 @@ def preprocess_dataframe_for_calibration(df):
     processed_df["constant"] = 1
     # We shift scores to be strictly positive per user in order to
     # avoid zero denominators in the KL divergence calculation
-    processed_df["rating"] = processed_df.groupby("user")["rating"].transform(
+    processed_df[RATING_COL] = processed_df.groupby(USER_COL)[RATING_COL].transform(
         lambda x: (x - x.min()) + 1e-8
     )
+
+    processed_df["max_timestamp"] = processed_df.groupby(USER_COL)[TIME_COL].transform(
+        "max"
+    )
+    processed_df["min_timestamp"] = processed_df.groupby(USER_COL)[TIME_COL].transform(
+        "min"
+    )
+
+    denom = processed_df["max_timestamp"] - processed_df["min_timestamp"]
+    processed_df["time_linear"] = (
+        processed_df[TIME_COL] - processed_df["min_timestamp"]
+    ) / denom.where(denom != 0, other=1)
     # processed_df = get_linear_time_weight_rating(processed_df)
     return processed_df
 
@@ -97,9 +109,9 @@ def build_weight_tensor(
     weight_col,
     n_users,
     n_items,
-    user_tensor=None,
-    item_tensor=None,
-    ratings_tensor=None,
+    user_vector=None,
+    item_vector=None,
+    weight_vector=None,
 ):
     """
     Create a dense user-item weight tensor. Esentially builds W_u_i matrix from users interactions
@@ -118,11 +130,11 @@ def build_weight_tensor(
     n_items : int
         Number of items (second dimension of returned tensor).
     Optionals:
-    user_tensor : torch.LongTensor or array-like, optional
+    user_vector : torch.LongTensor or array-like, optional
         1D indices of users for each interaction (overrides df-based construction).
-    item_tensor : torch.LongTensor or array-like, optional
+    item_vector : torch.LongTensor or array-like, optional
         1D indices of items for each interaction (overrides df-based construction).
-    ratings_tensor : torch.Tensor or array-like, optional
+    ratings_vector : torch.Tensor or array-like, optional
         1D weights/ratings for each interaction (overrides df-based construction).
 
     Returns
@@ -131,11 +143,11 @@ def build_weight_tensor(
         Dense tensor  with weights populated at (user, item)
         locations; entries without interactions are zero.
     """
-    if user_tensor is None or item_tensor is None or ratings_tensor is None:
-        user_tensor, item_tensor, ratings_tensor = build_tensors_from_df(df, weight_col)
+    if user_vector is None or item_vector is None or weight_vector is None:
+        user_vector, item_vector, weight_vector = build_tensors_from_df(df, weight_col)
     w_u_i_tensor = torch.zeros(size=(n_users, n_items), dtype=torch.float32, device=dev)
-    indices = (user_tensor, item_tensor)
-    w_u_i_tensor.index_put_(indices, ratings_tensor, accumulate=True)
+    indices = (user_vector, item_vector)
+    w_u_i_tensor.index_put_(indices, weight_vector, accumulate=True)
 
     return w_u_i_tensor
 

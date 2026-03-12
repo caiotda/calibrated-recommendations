@@ -1,5 +1,7 @@
 RATING_COL = "rating"
 USER_COL = "user"
 ITEM_COL = "item"
+TIME_COL = "timestamp"
 GENRE_COL = "genres"
+RATING_COL = "rating"
 UNKNOWN_GENRE = "(no genres listed)"
