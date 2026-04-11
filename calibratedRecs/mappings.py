@@ -6,13 +6,6 @@ CALIBRATION_MODE_TO_RECOMMENDATION_COL = {
     "linear_time": "top_k_rec_id_cumulative_rank",
 }
 
-CALIBRATION_MODE_TO_COL_NAME = {
-    "constant": "w_c",
-    "rating": "w_rui",
-    "linear_time": "w_twb",
-}
-
-
 DISTRIBUTION_MODE_TO_FUNCTION = {"steck": None, "gleb": get_gleb_distribution}
 
 
