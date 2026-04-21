@@ -5,6 +5,14 @@ import torch
 from calibratedRecs.calibrationUtils import build_weight_tensor, clip_tensors_at_k
 
 
+def hellinger_distance(p, q):
+    """Calculates Hellinger distance between two discrete distributions."""
+    # Formula: 1/sqrt(2) * ||sqrt(p) - sqrt(q)||_2
+    return torch.sqrt(torch.sum((torch.sqrt(p) - torch.sqrt(q)) ** 2)) / torch.sqrt(
+        torch.tensor(2.0)
+    )
+
+
 def get_kl_divergence(
     dist_p: torch.Tensor, dist_q: torch.Tensor, epsilon: float = 1e-9
 ) -> float:
