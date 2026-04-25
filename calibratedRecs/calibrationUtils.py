@@ -14,14 +14,13 @@ def preprocess_dataframe_for_calibration(df):
     and turns genre collection into tuple.
     """
     processed_df = df.copy()
-    processed_df[GENRE_COL] = processed_df[GENRE_COL].apply(tuple)
     processed_df["constant"] = 1
     # We shift scores to be strictly positive per user in order to
     # avoid zero denominators in the KL divergence calculation
     processed_df["rating"] = processed_df.groupby("user")["rating"].transform(
         lambda x: (x - x.min()) + 1e-8
     )
-    # processed_df = get_linear_time_weight_rating(processed_df)
+    processed_df = get_linear_time_weight_rating(processed_df)
     return processed_df
 
 

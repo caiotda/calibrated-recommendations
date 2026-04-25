@@ -18,6 +18,7 @@ def rerank_by_calibration(
     item2genreMap,
     calibration_type,
     device=dev,
+    dist_function="kl",
 ):
     """
     Rerank recommendations by calibration.
@@ -32,6 +33,8 @@ def rerank_by_calibration(
         item2genremap (dict): Mapping from item IDs to their genres
         device (torch.device): Device to place tensors on (default: cuda if available, else cpu)
         calibration_type (str): Type of calibration to perform (e.g, linear based, constant)
+        dist_function (Str: either kl or hellinger): Type of distance function between probabilities to use
+            (defaults to kl divergence)
 
     Returns:
         tuple: (reranked_recs, reranked_scores) both of shape (n_users, calib_k)
@@ -68,6 +71,7 @@ def rerank_by_calibration(
         n_users=n_users,
         n_items=n_items,
         weight=calibration_type,
+        prob_dist_function=dist_function,
     )
 
     calibrator.calibrate_for_users(k=calib_k, verbose=False)
