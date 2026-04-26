@@ -7,10 +7,12 @@ from calibratedRecs.calibrationUtils import build_weight_tensor, clip_tensors_at
 
 def hellinger_distance(p, q):
     """Calculates Hellinger distance between two discrete distributions."""
-    # Formula: 1/sqrt(2) * ||sqrt(p) - sqrt(q)||_2
-    return torch.sqrt(torch.sum((torch.sqrt(p) - torch.sqrt(q)) ** 2)) / torch.sqrt(
-        torch.tensor(2.0)
-    )
+    # 1/sqrt(2) * ||sqrt(p) - sqrt(q)||_2
+    hellinger = torch.sqrt(
+        torch.sum((torch.sqrt(p) - torch.sqrt(q)) ** 2)
+    ) / torch.sqrt(torch.tensor(2.0))
+
+    return hellinger.item()
 
 
 def get_kl_divergence(
