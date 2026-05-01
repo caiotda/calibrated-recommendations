@@ -4,8 +4,13 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from calibratedRecs.constants import ITEM_COL, USER_COL
-from calibratedRecs.metrics import get_avg_kl_div, get_kl_divergence, mace
+from calibratedRecs.constants import GENRE_COL, ITEM_COL, USER_COL
+from calibratedRecs.metrics import (
+    get_avg_divergence,
+    get_kl_divergence,
+    mace,
+    hellinger_distance,
+)
 
 from calibratedRecs.mappings import validate_modes, DISTRIBUTION_MODE_TO_FUNCTION
 
@@ -31,12 +36,15 @@ class Calibration:
         weight="constant",
         distribution_mode="steck",
         _lambda=0.99,
+        prob_dist_function="kl",
     ):
         validate_modes(weight, distribution_mode)
         self.weight = weight
         self._lambda = _lambda
+        self.prob_dist_function = prob_dist_function
         self.is_calibrated = False
         self.distribution_function = DISTRIBUTION_MODE_TO_FUNCTION[distribution_mode]
+        ratings_df[GENRE_COL] = ratings_df[GENRE_COL].apply(tuple)
         self.ratings_df = preprocess_dataframe_for_calibration(ratings_df)
         self.recommendation_df = recommendation_df.rename(
             columns={"top_k_rec_id": ITEM_COL, "top_k_rec_score": "rating"}
@@ -77,14 +85,16 @@ class Calibration:
             weight_col="rating",
         )
 
-    def get_avg_kl_div(self, source="calibrated"):
+    def get_avg_divergence(self, source="calibrated", div="kl"):
         realized_dist = (
             self.calibrated_rec_distribution_tensor
             if source == "calibrated"
             else self.rec_distribution_tensor
         )
         users = self.ratings_df[USER_COL].unique()
-        return get_avg_kl_div(users, self.user_history_tensor, realized_dist)
+        return get_avg_divergence(
+            users, self.user_history_tensor, realized_dist, div=div
+        )
 
     def _mace(self, k=1000):
         df = self.calibration_df if self.is_calibrated else self.recommendation_df
@@ -150,6 +160,10 @@ class Calibration:
         - AssertionError: If candidates list is empty.
         """
 
+        if self.prob_dist_function == "kl":
+            dist_f = get_kl_divergence
+        else:
+            dist_f = hellinger_distance
         if k > len(recommendation_list):
             print(
                 "K parameter larger than recommendation list! Defaulting to recommendation list size..."
@@ -176,6 +190,7 @@ class Calibration:
         # Don´t stop until we have a candidate list of size k
         while len(calibrated_rec) < k:
             objective = -math.inf
+            best_idx = None
             best_candidate_relevancy = 0
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
@@ -194,8 +209,9 @@ class Calibration:
                     running_weighted_genre_sum + (w_i * g_i)
                 ) / new_weight_total
 
-                # Gets KL divergence between user history genre distribution and candidate list
-                kl_divergence_candidate = get_kl_divergence(
+                # Gets distribution divergence (either kl or hellinger)
+                # between user history genre distribution and candidate list
+                distribution_divergence = dist_f(
                     user_history, candidate_list_distribution
                 )
 
@@ -204,7 +220,7 @@ class Calibration:
                 # Finally, we measure the Maximal Marginal Relevance
                 MMR_of_candidate_list = (
                     (1 - _lambda) * relevancy_so_far_with_candidate
-                    - _lambda * kl_divergence_candidate
+                    - _lambda * distribution_divergence
                 )
 
                 if MMR_of_candidate_list > objective:
@@ -215,7 +231,14 @@ class Calibration:
                     best_g_i = g_i
                     objective = MMR_of_candidate_list
 
+            # Gracefully fail if all weights are zero for this user
+            if best_idx is None:
+                print(
+                    f"Warning: User {user} recommendation list could not be calibrated (all weights are zero). Resorting to standard list."
+                )
+                return recommendation_list[:k], rec_score_list[:k]
             # Commit to the found candidate
+
             calibrated_rec.append(best_candidate)
             calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
