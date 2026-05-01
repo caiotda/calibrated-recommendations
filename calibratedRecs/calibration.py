@@ -190,6 +190,7 @@ class Calibration:
         # Don´t stop until we have a candidate list of size k
         while len(calibrated_rec) < k:
             objective = -math.inf
+            best_idx = None
             best_candidate_relevancy = 0
             # Greedily adds candidates to the calibrated list, always choosing the
             # item that maximizes the equation
@@ -230,7 +231,14 @@ class Calibration:
                     best_g_i = g_i
                     objective = MMR_of_candidate_list
 
+            # Gracefully fail if all weights are zero for this user
+            if best_idx is None:
+                print(
+                    f"Warning: User {user} recommendation list could not be calibrated (all weights are zero). Resorting to standard list."
+                )
+                return recommendation_list[:k], rec_score_list[:k]
             # Commit to the found candidate
+
             calibrated_rec.append(best_candidate)
             calibrated_rec_relevancies.append(best_candidate_relevancy)
             total_relevancy += best_candidate_relevancy
